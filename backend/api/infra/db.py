@@ -21,13 +21,13 @@ class AsyncCassandraClient:
 
     async def create_conversation(self, user_id: int, title: str) -> UUID1:
         conversation_id = uuid.uuid1()
-        query = await self.session.prepare('INSERT INTO conversations (user_id, conversation_id, title) '\
+        query = await self.session.prepare('INSERT INTO conversations (user_id, conversation_id, title) '
                                            'VALUES (?, ?, ?)')
         await self.session.execute(query, (user_id, conversation_id, title))
         return conversation_id
     
     async def rename_conversation(self, user_id: int, conversation_id: UUID1, new_title: str) -> None:
-        query = await self.session.prepare('UPDATE conversations SET title = ? '\
+        query = await self.session.prepare('UPDATE conversations SET title = ? '
                                            'WHERE user_id = ? AND conversation_id = ?')
         await self.session.execute(query, (new_title, user_id, conversation_id))
     
@@ -42,14 +42,14 @@ class AsyncCassandraClient:
     
     async def create_message(self, message: Message) -> datetime.datetime:
         created_at = datetime.datetime.now(datetime.timezone.utc)
-        query = await self.session.prepare('INSERT INTO messages (conversation_id, created_at, role, content) '\
+        query = await self.session.prepare('INSERT INTO messages (conversation_id, created_at, role, content) '
                                            'VALUES (?, ?, ?, ?)')
         await self.session.execute(query, (message.conversation_id, created_at, message.role.value, message.content))
         return created_at
     
     async def list_messages(self, conversation_id: UUID1, cursor: datetime.datetime, limit: int = 2) -> list[Message]:
         query = await self.session.prepare('SELECT created_at, role, content FROM messages '
-                                           'WHERE conversation_id = ? AND created_at <= ? LIMIT ?')
+                                           'WHERE conversation_id = ? AND created_at < ? LIMIT ?')
         rows = await self.session.execute(query, (conversation_id, cursor, limit))
         return [
             Message(
