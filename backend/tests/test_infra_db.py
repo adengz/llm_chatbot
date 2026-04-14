@@ -2,8 +2,23 @@ import uuid
 import asyncio
 
 import pytest
+import pytest_asyncio
 
 from api.domain.models import Message, Role
+from api.infra.db import AsyncCassandraClient
+
+
+@pytest_asyncio.fixture(scope='session')
+async def db_client():
+    client = await AsyncCassandraClient.create(['localhost'], 'chatbot')
+    yield client
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_tables(db_client):
+    yield
+    await db_client.session.execute('TRUNCATE chatbot.conversations')
+    await db_client.session.execute('TRUNCATE chatbot.messages')
 
 
 class TestAsyncCassandraClient:
@@ -11,7 +26,7 @@ class TestAsyncCassandraClient:
     async def _create_conversation(self, db_client, user_id: int = 0, title: str = '') -> uuid.UUID:
         conversation_id = uuid.uuid1()
         query = await db_client.session.prepare('INSERT INTO conversations (user_id, conversation_id, title) '
-                                               'VALUES (?, ?, ?)')
+                                                'VALUES (?, ?, ?)')
         await db_client.session.execute(query, (user_id, conversation_id, title))
         return conversation_id
 
@@ -75,8 +90,9 @@ class TestAsyncCassandraClient:
         role = Role.USER
         content = 'Hello World'
         message = Message(conversation_id=conversation_id, role=role, content=content)
+        created_at = message.created_at
 
-        created_at = await db_client.create_message(message)
+        await db_client.create_message(message)
         query = await db_client.session.prepare('SELECT role, content FROM messages '
                                                 'WHERE conversation_id = ? AND created_at = ?')
         res = await db_client.session.execute(query, (conversation_id, created_at))
@@ -98,7 +114,7 @@ class TestAsyncCassandraClient:
         ]
         
         query = await db_client.session.prepare('INSERT INTO messages (conversation_id, created_at, role, content) '
-                                               'VALUES (?, ?, ?, ?)')
+                                                'VALUES (?, ?, ?, ?)')
         for created_at, role, content in messages_data:
             await db_client.session.execute(query, (conversation_id, created_at, role, content))
         
