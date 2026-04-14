@@ -40,12 +40,18 @@ class AsyncCassandraClient:
         rows = await self.session.execute(query, (user_id,))
         return [Conversation(user_id=user_id, conversation_id=row.conversation_id, title=row.title) for row in rows]
     
-    async def create_message(self, message: Message) -> datetime.datetime:
-        created_at = datetime.datetime.now(datetime.timezone.utc)
+    async def create_message(self, message: Message) -> None:
         query = await self.session.prepare('INSERT INTO messages (conversation_id, created_at, role, content) '
                                            'VALUES (?, ?, ?, ?)')
-        await self.session.execute(query, (message.conversation_id, created_at, message.role.value, message.content))
-        return created_at
+        await self.session.execute(
+            query,
+            (
+                message.conversation_id, 
+                message.created_at, 
+                message.role.value, 
+                message.content,
+            )
+        )
     
     async def list_messages(self, conversation_id: UUID1, cursor: datetime.datetime, limit: int = 2) -> list[Message]:
         query = await self.session.prepare('SELECT created_at, role, content FROM messages '

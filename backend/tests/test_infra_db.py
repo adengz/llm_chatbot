@@ -75,8 +75,9 @@ class TestAsyncCassandraClient:
         role = Role.USER
         content = 'Hello World'
         message = Message(conversation_id=conversation_id, role=role, content=content)
+        created_at = message.created_at
 
-        created_at = await db_client.create_message(message)
+        await db_client.create_message(message)
         query = await db_client.session.prepare('SELECT role, content FROM messages '
                                                 'WHERE conversation_id = ? AND created_at = ?')
         res = await db_client.session.execute(query, (conversation_id, created_at))
