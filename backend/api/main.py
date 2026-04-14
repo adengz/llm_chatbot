@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, Request, Depends, HTTPException, Body
 from pydantic import UUID1
 
 from api.infra import lifespan
@@ -15,13 +15,16 @@ def get_user_id() -> int:
 app = FastAPI(lifespan=lifespan)
 
 
+def get_db(request: Request) -> AsyncCassandraClient:
+    return request.app.state.db_client
+
+
 @app.post('/messages')
-async def create_message(message: Message):
+async def create_message(message: Message, db: AsyncCassandraClient = Depends(get_db)):
     if message.role != Role.USER:
         raise HTTPException(status_code=400, detail='Only user messages can be created')
 
     user_id = get_user_id()
-    db: AsyncCassandraClient = app.state.db_client
     
     if message.conversation_id is None:
         message.conversation_id = await db.create_conversation(user_id=user_id, title=message.content)
@@ -36,29 +39,27 @@ async def create_message(message: Message):
 
 
 @app.get('/conversations')
-async def list_conversations() -> list[Conversation]:
+async def list_conversations(db: AsyncCassandraClient = Depends(get_db)) -> list[Conversation]:
     user_id = get_user_id()
-    db: AsyncCassandraClient = app.state.db_client
     return await db.list_conversations(user_id=user_id)
 
 
 @app.get('/conversations/{conversation_id}/messages')
-async def list_messages(conversation_id: UUID1, cursor: datetime | None = None, limit: int = 2) -> list[Message]:
-    db: AsyncCassandraClient = app.state.db_client
+async def list_messages(conversation_id: UUID1, cursor: datetime | None = None, limit: int = 2,
+                        db: AsyncCassandraClient = Depends(get_db)) -> list[Message]:
     if cursor is None:
         cursor = datetime.now(timezone.utc)
     return await db.list_messages(conversation_id=conversation_id, cursor=cursor, limit=limit)
 
 
 @app.delete('/conversations/{conversation_id}')
-async def delete_conversation(conversation_id: UUID1) -> None:
+async def delete_conversation(conversation_id: UUID1, db: AsyncCassandraClient = Depends(get_db)) -> None:
     user_id = get_user_id()
-    db: AsyncCassandraClient = app.state.db_client
     await db.delete_conversation(user_id=user_id, conversation_id=conversation_id)
 
 
 @app.patch('/conversations/{conversation_id}')
-async def rename_conversation(conversation_id: UUID1, title: str = Body(embed=True)) -> None:
+async def rename_conversation(conversation_id: UUID1, title: str = Body(embed=True),
+                              db: AsyncCassandraClient = Depends(get_db)) -> None:
     user_id = get_user_id()
-    db: AsyncCassandraClient = app.state.db_client
     await db.rename_conversation(user_id=user_id, conversation_id=conversation_id, new_title=title)
