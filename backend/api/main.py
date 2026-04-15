@@ -1,11 +1,14 @@
+import json
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request, Depends, HTTPException, Body
-from pydantic import UUID1
+from fastapi import FastAPI, Request, Depends, Body
+from fastapi.responses import StreamingResponse
+from pydantic import UUID1, BaseModel
 
 from api.infra import lifespan
 from api.infra.db import AsyncCassandraClient
-from api.domain.models import Message, Role, Conversation
+from api.infra.llm import AsyncLLMAssistant
+from api.domain.models import MessageRequest, Message, Role, Conversation
 
 
 def get_user_id() -> int:
@@ -19,23 +22,56 @@ def get_db(request: Request) -> AsyncCassandraClient:
     return request.app.state.db_client
 
 
-@app.post('/messages')
-async def create_message(message: Message, db: AsyncCassandraClient = Depends(get_db)):
-    if message.role != Role.USER:
-        raise HTTPException(status_code=400, detail='Only user messages can be created')
+def get_llm(request: Request) -> AsyncLLMAssistant:
+    return request.app.state.llm_client
 
+
+async def list_history(db: AsyncCassandraClient, conversation_id: UUID1, cursor: datetime) -> list[Message]:
+    messages = []
+    while True:
+        batch = await db.list_messages(conversation_id=conversation_id, cursor=cursor, limit=100)
+        if not batch:
+            break
+        messages.extend(batch)
+        cursor = batch[-1].created_at
+    return messages
+
+
+@app.post('/messages')
+async def create_message(req: MessageRequest, db: AsyncCassandraClient = Depends(get_db),
+                         llm: AsyncLLMAssistant = Depends(get_llm)) -> StreamingResponse:
     user_id = get_user_id()
+    message = Message(conversation_id=req.conversation_id, role=Role.USER, content=req.content)
     
-    if message.conversation_id is None:
+    history = []
+    if req.conversation_id is None:
         message.conversation_id = await db.create_conversation(user_id=user_id, title=message.content)
+    else:
+        history = await list_history(db=db, conversation_id=message.conversation_id, cursor=message.created_at)
     
     await db.create_message(message=message)
 
-    # TODO: streaming LLM response back to client
-    bot_message = Message(conversation_id=message.conversation_id, role=Role.ASSISTANT,
-                          content='This is a response from the AI assistant.')
-    await db.create_message(message=bot_message)
-    return bot_message
+    async def generate():
+        conversation_id = str(message.conversation_id)
+        yield f"data: {json.dumps({'type': 'metadata', 'conversation_id': conversation_id})}\n\n"
+
+        assistant_content = []
+        async for event_type, delta in llm.stream_response(messages=[message] + history, model=req.model, 
+                                                           reasoning_effort=req.reasoning_effort):
+            if event_type == 'reasoning':
+                yield f"data: {json.dumps({'type': 'reasoning', 'delta': delta})}\n\n"
+                continue
+
+            assistant_content.append(delta)
+            yield f"data: {json.dumps({'type': 'content', 'delta': delta})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        bot_message = Message(conversation_id=message.conversation_id, role=Role.ASSISTANT,
+                              content=''.join(assistant_content))
+        await db.create_message(message=bot_message)
+        
+    return StreamingResponse(generate(), media_type='text/event-stream')
 
 
 @app.get('/conversations')
