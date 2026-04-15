@@ -63,7 +63,7 @@ async def create_message(req: MessageRequest, db: AsyncCassandraClient = Depends
                 continue
 
             assistant_content.append(delta)
-            yield f"data: {json.dumps({'type': 'message', 'delta': delta})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'delta': delta})}\n\n"
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
