@@ -31,6 +31,7 @@ class ReasoningEffort(StrEnum):
 class MessageRequest(BaseModel):
     conversation_id: UUID1 | None = None
     content: str
+    model_source: str
     model: str
     reasoning_effort: ReasoningEffort = ReasoningEffort.MEDIUM
     

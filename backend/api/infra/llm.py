@@ -10,6 +10,10 @@ class AsyncLLMAssistant:
     def __init__(self, api_key: str, base_url: str = None):
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
+    async def list_models(self) -> list[str]:
+        response = await self.client.models.list()
+        return [model.id for model in response.data] if response is not None else []
+
     async def stream_response(
             self,
             messages: list[Message],
