@@ -1,9 +1,10 @@
 import json
+import asyncio
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request, Depends, Body
+from fastapi import FastAPI, Request, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
-from pydantic import UUID1, BaseModel
+from pydantic import UUID1
 
 from api.infra import lifespan
 from api.infra.db import AsyncCassandraClient
@@ -22,8 +23,8 @@ def get_db(request: Request) -> AsyncCassandraClient:
     return request.app.state.db_client
 
 
-def get_llm(request: Request) -> AsyncLLMAssistant:
-    return request.app.state.llm_client
+def get_llms(request: Request) -> dict[str, AsyncLLMAssistant]:
+    return request.app.state.llm_clients
 
 
 async def list_history(db: AsyncCassandraClient, conversation_id: UUID1, cursor: datetime) -> list[Message]:
@@ -37,9 +38,27 @@ async def list_history(db: AsyncCassandraClient, conversation_id: UUID1, cursor:
     return messages
 
 
+@app.get('/models')
+async def list_llms(llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> dict[str, list[str]]:
+    items = list(llms.items())
+    results = await asyncio.gather(*(llm.list_models() for _, llm in items), return_exceptions=True)
+
+    available_models: dict[str, list[str]] = {}
+    for (source, _), result in zip(items, results):
+        if isinstance(result, Exception):
+            continue
+        available_models[source] = result
+
+    return available_models
+
+
 @app.post('/messages')
 async def create_message(req: MessageRequest, db: AsyncCassandraClient = Depends(get_db),
-                         llm: AsyncLLMAssistant = Depends(get_llm)) -> StreamingResponse:
+                         llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> StreamingResponse:
+    llm = llms.get(req.model_source)
+    if llm is None:
+        raise HTTPException(status_code=400, detail=f'Unsupported model source: {req.model_source}')
+    
     user_id = get_user_id()
     message = Message(conversation_id=req.conversation_id, role=Role.USER, content=req.content)
     
