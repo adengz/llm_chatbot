@@ -1,14 +1,17 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OLLAMA_BASE_URL: http://localhost:11434/v1
+      OLLAMA_TEST_MODEL: qwen3:0.6b
     defaults:
       run:
         working-directory: ./backend
@@ -29,6 +32,18 @@ jobs:
 
     - name: Install dependencies
       run: uv sync
+
+    - name: Setup Ollama
+      uses: ai-action/setup-ollama@v2
+
+    - name: Cache Ollama model
+      uses: actions/cache@v4
+      with:
+        path: ~/.ollama
+        key: ollama-${{ env.OLLAMA_TEST_MODEL }}
+
+    - name: Pull Ollama test model
+      run: ollama pull "$OLLAMA_TEST_MODEL"
 
     - name: Start database
       run: docker compose up -d
