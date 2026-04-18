@@ -1,15 +1,36 @@
 import json
 import asyncio
 from datetime import datetime, timezone
+from typing import Protocol
 
+from pydantic import UUID1
 from fastapi import FastAPI, Request, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
-from pydantic import UUID1
 
 from api.infra import lifespan
-from api.infra.db import AsyncCassandraClient
 from api.infra.llm import AsyncLLMAssistant
 from api.domain.models import MessageRequest, Message, Role, Conversation
+
+
+class DBClient(Protocol):
+
+    async def create_conversation(self, user_id: int, title: str) -> UUID1:
+        ...
+
+    async def rename_conversation(self, user_id: int, conversation_id: UUID1, new_title: str) -> None:
+        ...
+
+    async def delete_conversation(self, user_id: int, conversation_id: UUID1) -> None:
+        ...
+
+    async def list_conversations(self, user_id: int) -> list[Conversation]:
+        ...
+
+    async def create_message(self, message: Message) -> None:
+        ...
+
+    async def list_messages(self, conversation_id: UUID1, cursor: datetime, limit: int = 2) -> list[Message]:
+        ...
 
 
 def get_user_id() -> int:
@@ -19,7 +40,7 @@ def get_user_id() -> int:
 app = FastAPI(lifespan=lifespan)
 
 
-def get_db(request: Request) -> AsyncCassandraClient:
+def get_db(request: Request) -> DBClient:
     return request.app.state.db_client
 
 
@@ -27,7 +48,7 @@ def get_llms(request: Request) -> dict[str, AsyncLLMAssistant]:
     return request.app.state.llm_clients
 
 
-async def list_history(db: AsyncCassandraClient, conversation_id: UUID1, cursor: datetime) -> list[Message]:
+async def list_history(db: DBClient, conversation_id: UUID1, cursor: datetime) -> list[Message]:
     messages = []
     while True:
         batch = await db.list_messages(conversation_id=conversation_id, cursor=cursor, limit=100)
@@ -53,7 +74,7 @@ async def list_llms(llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> d
 
 
 @app.post('/messages')
-async def create_message(req: MessageRequest, db: AsyncCassandraClient = Depends(get_db),
+async def create_message(req: MessageRequest, db: DBClient = Depends(get_db),
                          llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> StreamingResponse:
     llm = llms.get(req.model_source)
     if llm is None:
@@ -94,27 +115,27 @@ async def create_message(req: MessageRequest, db: AsyncCassandraClient = Depends
 
 
 @app.get('/conversations')
-async def list_conversations(db: AsyncCassandraClient = Depends(get_db)) -> list[Conversation]:
+async def list_conversations(db: DBClient = Depends(get_db)) -> list[Conversation]:
     user_id = get_user_id()
     return await db.list_conversations(user_id=user_id)
 
 
 @app.get('/conversations/{conversation_id}/messages')
 async def list_messages(conversation_id: UUID1, cursor: datetime | None = None, limit: int = 2,
-                        db: AsyncCassandraClient = Depends(get_db)) -> list[Message]:
+                        db: DBClient = Depends(get_db)) -> list[Message]:
     if cursor is None:
         cursor = datetime.now(timezone.utc)
     return await db.list_messages(conversation_id=conversation_id, cursor=cursor, limit=limit)
 
 
 @app.delete('/conversations/{conversation_id}')
-async def delete_conversation(conversation_id: UUID1, db: AsyncCassandraClient = Depends(get_db)) -> None:
+async def delete_conversation(conversation_id: UUID1, db: DBClient = Depends(get_db)) -> None:
     user_id = get_user_id()
     await db.delete_conversation(user_id=user_id, conversation_id=conversation_id)
 
 
 @app.patch('/conversations/{conversation_id}')
 async def rename_conversation(conversation_id: UUID1, title: str = Body(embed=True),
-                              db: AsyncCassandraClient = Depends(get_db)) -> None:
+                              db: DBClient = Depends(get_db)) -> None:
     user_id = get_user_id()
     await db.rename_conversation(user_id=user_id, conversation_id=conversation_id, new_title=title)

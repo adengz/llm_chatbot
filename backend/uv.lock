@@ -37,25 +37,13 @@ wheels = [
 ]
 
 [[package]]
-name = "async-cassandra"
-version = "0.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cassandra-driver" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/6c/02bb7d98b44a008e3cd76c7a383b5dde414c14380e94bf9d0b7f204fad88/async_cassandra-0.0.1.tar.gz", hash = "sha256:3a98a1dad4cd140b039b5276455bd0a7b6bb39654db25412d140c0060c7d009b", size = 427108, upload-time = "2025-07-01T18:26:12.963Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3e/5a/cb44015df3edf1b601a5f410c86d7da3bfecca1d3375525ad566ef0117e9/async_cassandra-0.0.1-py3-none-any.whl", hash = "sha256:117e646ef07357675ca1b0c3fd39a23c44bba296548a96b5b2aecd77e5f48ca8", size = 32186, upload-time = "2025-07-01T18:26:11.332Z" },
-]
-
-[[package]]
 name = "backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "async-cassandra" },
     { name = "fastapi", extra = ["standard"] },
     { name = "openai" },
+    { name = "scyllapy" },
 ]
 
 [package.dev-dependencies]
@@ -67,9 +55,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "async-cassandra", specifier = ">=0.0.1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.135.3" },
     { name = "openai", specifier = ">=2.31.0" },
+    { name = "scyllapy", specifier = ">=1.3.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -77,23 +65,6 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-]
-
-[[package]]
-name = "cassandra-driver"
-version = "3.29.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "geomet" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/06/47/4e0fbdf02a7a418997f16f59feba26937d9973b979d3f23d79fbd8f6186f/cassandra_driver-3.29.3.tar.gz", hash = "sha256:ff6b82ee4533f6fd4474d833e693b44b984f58337173ee98ed76bce08721a636", size = 294612, upload-time = "2025-10-22T15:15:01.335Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/9f/5933f1f964e4e4f98b3743f0b548ce4a6f3d9d76baf0f064911f4ee871e5/cassandra_driver-3.29.3-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:5a0113020d86e8f61c7a2ae3d508720cd036df7462a55926b85dd97ada27e143", size = 364457, upload-time = "2025-10-22T15:14:45.453Z" },
-    { url = "https://files.pythonhosted.org/packages/73/7e/3b36461b3f2a7444e0183dcabfd8fe1fb5f700a260812fb0f6b751c3e9ba/cassandra_driver-3.29.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:2b72312a8b62a905da6133effbba9b0731c8e30af96e10ca77fc5c34532c6827", size = 365062, upload-time = "2025-10-22T15:14:46.707Z" },
-    { url = "https://files.pythonhosted.org/packages/b3/f5/ae49f30eb59c55fb226467129f02fed3ac042f87990b647a7e9021ffb3db/cassandra_driver-3.29.3-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:38216e13d6f2e0d4513a5b8806e70ce4a8f28a82962793a67371582fc2c7141b", size = 374573, upload-time = "2025-10-22T15:14:48.116Z" },
-    { url = "https://files.pythonhosted.org/packages/ea/42/a4f10ef8274a2bd05e859b7d2141c2c0cc13a8ef4ea6e825a660960b17d7/cassandra_driver-3.29.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:51d6a5390e2454b599500049f0a5c72aa701db155c1e542f9a1157c1c45814b1", size = 374432, upload-time = "2025-10-22T15:14:49.44Z" },
-    { url = "https://files.pythonhosted.org/packages/ea/55/611982779ddeb4b98658d87ab3b150506b2121d8d16a843459c7aacc7884/cassandra_driver-3.29.3-cp313-cp313-win32.whl", hash = "sha256:638047c1f70fb14c9d8f743931d4f4f42aff6793b47afded3097c002ef8c1165", size = 341529, upload-time = "2025-10-22T15:14:50.896Z" },
-    { url = "https://files.pythonhosted.org/packages/b2/13/aaa6c7559bfb11c58a1978dfa46732f4d477230641259f13a14907cb4546/cassandra_driver-3.29.3-cp313-cp313-win_amd64.whl", hash = "sha256:27adf8869937461ad08c5fefb47857532e467b408db496db4dbf8b132a4bd623", size = 349242, upload-time = "2025-10-22T15:14:52.472Z" },
 ]
 
 [[package]]
@@ -347,18 +318,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/12/71/1e82b796ccee8d3318bf9e7638a5d8d13a862681d26dedd0e807fa17f2c6/fastar-0.10.0-cp314-cp314t-win32.whl", hash = "sha256:c35f812bc59dab63ce7b130ed9e2258478ec9a07338b55670513fd985c244fac", size = 454307, upload-time = "2026-04-08T01:02:32.01Z" },
     { url = "https://files.pythonhosted.org/packages/27/5d/9ace4277834d59d5c89c0ffa0fc9805db4e4bcba1da9e54356ae18c9583b/fastar-0.10.0-cp314-cp314t-win_amd64.whl", hash = "sha256:1df45800337eb8f70f256c5139953e1910189fc3578adc81d135818529a1df6f", size = 486365, upload-time = "2026-04-08T01:02:20.244Z" },
     { url = "https://files.pythonhosted.org/packages/71/4f/a5b3cfc3e1779c756c4fef790facef12d63088402a718b167b780d4f2ccc/fastar-0.10.0-cp314-cp314t-win_arm64.whl", hash = "sha256:3152a80835ef11cbfaf153037dd694e0014f25d074792b9785421679acdbe179", size = 461150, upload-time = "2026-04-08T01:02:08.47Z" },
-]
-
-[[package]]
-name = "geomet"
-version = "1.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2a/8c/dde022aa6747b114f6b14a7392871275dea8867e2bd26cddb80cc6d66620/geomet-1.1.0.tar.gz", hash = "sha256:51e92231a0ef6aaa63ac20c443377ba78a303fd2ecd179dc3567de79f3c11605", size = 28732, upload-time = "2023-11-14T15:43:36.764Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/90/3bc780df088d439714af8295196a4332a26559ae66fd99865e36f92efa9e/geomet-1.1.0-py3-none-any.whl", hash = "sha256:4372fe4e286a34acc6f2e9308284850bd8c4aa5bc12065e2abbd4995900db12f", size = 31522, upload-time = "2023-11-14T15:43:35.305Z" },
 ]
 
 [[package]]
@@ -766,6 +725,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
 name = "python-dotenv"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -900,6 +871,28 @@ wheels = [
 ]
 
 [[package]]
+name = "scyllapy"
+version = "1.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b7/a3/5d52649957558319716f7038389c847ff38a189ced1963bd7c560393b30f/scyllapy-1.3.3.tar.gz", hash = "sha256:652a130c845757b24a865c1a219de8b025a568b6ca989a0630d22f265bbc7d0c", size = 58773, upload-time = "2024-11-05T18:56:47.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/c3/15bb6285b5d95ab2d8c62240eb7f70791f9b3f767c4f6abe93e82cf08eab/scyllapy-1.3.3-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2de87f6c96ed2d3e272031e0814b3bb82bcec20efd649c616a2b385d0d906930", size = 2878883, upload-time = "2024-11-05T18:56:28.839Z" },
+    { url = "https://files.pythonhosted.org/packages/de/2c/2a2bc351f0681009394a901925df0026d117ca9f9d3dfb5d4ca60369c0f2/scyllapy-1.3.3-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:7a0ffb592d07ab834ee1c5403aad0b982bf3717133b05ee34c289cf13e7fec4b", size = 3102184, upload-time = "2024-11-05T18:56:31.03Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/75/83e03aaa6967e1b3b351dcd6aeb48fc2de9c4436955b984a851d826b59f7/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:910f66f1e8782aa27c459b1b0c7713c504b2c6c8862f367c3476182582844b08", size = 3381044, upload-time = "2024-11-05T18:56:32.489Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/b9/0e666a8dfa786e0ef87f32eb6e56890985053e54a51a25ea09364d70ec87/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:579e4a8805b6bb3f02af6201589e434b93c685efccfaf4e215d92c8fa41c1d2b", size = 2826038, upload-time = "2024-11-05T18:56:33.882Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/d4/36f977aa75acf804373efc19b36967dc43a30e33fa69bc87b4a123614753/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:7e0333f865213d16e54eeac87d522a1593cc438aac5c54ea79736a36c8c6e3e7", size = 3213283, upload-time = "2024-11-05T18:56:35.86Z" },
+    { url = "https://files.pythonhosted.org/packages/41/67/51e44c34dd6f48abc822a6dde7aae313d459158dba8212f09ca0163544d5/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:fcd023cbbcc01168f226170873dc75b676861927c51eb0d3d55af196bbe8c6ba", size = 3094842, upload-time = "2024-11-05T18:56:37.39Z" },
+    { url = "https://files.pythonhosted.org/packages/73/e2/a3dd5bd274d0f283212bcdbd566be04d7ed682a06a731f3a6220872cee47/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:685712d9c11ea2dc84ef94a5702dfebf32f6197064d39cb81ba1bc307b4a0ba9", size = 3259384, upload-time = "2024-11-05T18:56:38.762Z" },
+    { url = "https://files.pythonhosted.org/packages/58/99/1f8c410c7ab71fd6fc37c7bd55a5909892ae38cade376b1bfd8ab2dbf707/scyllapy-1.3.3-cp38-abi3-musllinux_1_2_i686.whl", hash = "sha256:574c58b221e61b9cb6421f729bb353be6e2f4bfb77ff6a738c00d4c755f479cf", size = 3313266, upload-time = "2024-11-05T18:56:40.959Z" },
+    { url = "https://files.pythonhosted.org/packages/63/68/6bce59f07395c7d21810058827e2c1ae4c37f7e8f88832579d03f47beb16/scyllapy-1.3.3-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:1da4ba5417f565c5e8fd585b34c14c7631c2339406acfa38fd6845567a7fbb16", size = 3383160, upload-time = "2024-11-05T18:56:42.871Z" },
+    { url = "https://files.pythonhosted.org/packages/72/46/91bd20d8bcbbf6007288e246d887c37090e36cd57da2c84db02f4b8f7338/scyllapy-1.3.3-cp38-abi3-win32.whl", hash = "sha256:6683e83d13ae285b82be265431d21d7b19e44848b574d8d07b5cf0aa3cfa1228", size = 2230595, upload-time = "2024-11-05T18:56:44.468Z" },
+    { url = "https://files.pythonhosted.org/packages/62/6d/48a3499c2c242baa2b6f028cecd997794637cf4d1e7ebd3adfd160b7f7dd/scyllapy-1.3.3-cp38-abi3-win_amd64.whl", hash = "sha256:e75d46bcf0de911b15e91af2bd325ab75f663c4f1a7e57fe78a9f64ddee697e0", size = 2478212, upload-time = "2024-11-05T18:56:45.757Z" },
+]
+
+[[package]]
 name = "sentry-sdk"
 version = "2.57.0"
 source = { registry = "https://pypi.org/simple" }
@@ -919,6 +912,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
+]
+
+[[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
 
 [[package]]

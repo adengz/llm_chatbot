@@ -1,17 +1,18 @@
 import uuid
 import json
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
+
 from fastapi.testclient import TestClient
 
-from api.main import app, get_db, get_llms
-from api.infra.db import AsyncCassandraClient
+from api.main import app, get_db, get_llms, DBClient
 from api.domain.models import ReasoningEffort, Message, Role, Conversation
 
 
 @pytest.fixture
 def api_ut_toolkit():
-    mock_db = AsyncMock(AsyncCassandraClient)
+    mock_db = AsyncMock(DBClient)
     llm_clients = {}
 
     app.dependency_overrides[get_db] = lambda: mock_db
