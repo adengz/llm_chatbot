@@ -4,6 +4,9 @@ from openai import AsyncOpenAI
 
 from api.domain.models import Message, ReasoningEffort
 
+OLLAMA_LOCAL_URL = 'http://localhost:11434/v1'
+OLLAMA_CLOUD_URL = 'https://ollama.com/v1'
+
 
 class AsyncLLMAssistant:
 

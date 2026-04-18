@@ -4,8 +4,9 @@
             "server": "localhost",
             "port": 9042,
             "previewLimit": 50,
-            "driver": "Cassandra",
+            "driver": "Scylla",
             "name": "localhost",
+            "database": "chatbot",
             "password": ""
         }
     ],

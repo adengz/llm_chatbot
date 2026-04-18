@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 
 from api.domain.models import Message, Role
-from api.infra.llm import AsyncLLMAssistant
+from api.infra.llm import OLLAMA_LOCAL_URL, AsyncLLMAssistant
 
 
 OLLAMA_TEST_MODEL = os.getenv('OLLAMA_TEST_MODEL', 'qwen3:0.6b')
@@ -12,8 +12,7 @@ OLLAMA_TEST_MODEL = os.getenv('OLLAMA_TEST_MODEL', 'qwen3:0.6b')
 
 @pytest_asyncio.fixture(scope='session')
 async def ollama_assistant() -> AsyncLLMAssistant:
-	base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
-	return AsyncLLMAssistant(api_key='ollama', base_url=base_url)
+	return AsyncLLMAssistant(api_key='ollama', base_url=OLLAMA_LOCAL_URL)
 
 
 class TestAsyncLLMAssistant:
