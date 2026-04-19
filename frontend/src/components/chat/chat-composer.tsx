@@ -20,6 +20,7 @@ type ChatComposerProps = {
   onPromptClick: () => void
   onSendClick: () => void
   onRefreshModels: () => void
+  isStreaming: boolean
 }
 
 export function ChatComposer({
@@ -37,6 +38,7 @@ export function ChatComposer({
   onPromptClick,
   onSendClick,
   onRefreshModels,
+  isStreaming,
 }: ChatComposerProps) {
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
   const [pendingSource, setPendingSource] = useState<ModelSource>(modelSource)
@@ -226,9 +228,9 @@ export function ChatComposer({
           <Sparkles className="size-4" />
           Prompt
         </Button>
-        <Button className="h-10 shrink-0" type="button" onClick={onSendClick}>
+        <Button className="h-10 shrink-0" type="button" onClick={onSendClick} disabled={isStreaming}>
           <SendHorizontal className="size-4" />
-          Send
+          {isStreaming ? 'Streaming…' : 'Send'}
         </Button>
       </div>
     </div>

@@ -1,4 +1,6 @@
 import { Bot, User } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import type { ChatMessage } from './chat-types'
 
@@ -8,7 +10,7 @@ type ChatMessageListProps = {
 
 export function ChatMessageList({ messages }: ChatMessageListProps) {
   return (
-    <div className="space-y-4 overflow-y-auto py-6">
+    <div className="space-y-4 py-6">
       {messages.map((message) => (
         <div
           key={message.id}
@@ -27,12 +29,21 @@ export function ChatMessageList({ messages }: ChatMessageListProps) {
                 : 'border-primary/40 bg-primary text-primary-foreground'
             }`}
           >
-            <p>{message.content}</p>
             {message.reasoning && (
-              <details className="mt-2 rounded-md border border-border/70 bg-background/70 p-2 text-xs text-muted-foreground">
+              <details
+                className="mb-2 rounded-md border border-border/70 bg-background/70 p-2 text-xs text-muted-foreground"
+                open={message.id === '__streaming__'}
+              >
                 <summary className="cursor-pointer select-none">Reasoning</summary>
-                <p className="mt-2">{message.reasoning}</p>
+                <p className="mt-2 whitespace-pre-wrap">{message.reasoning}</p>
               </details>
+            )}
+            {message.role === 'assistant' ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+              </div>
+            ) : (
+              <p>{message.content}</p>
             )}
           </div>
 

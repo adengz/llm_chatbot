@@ -1,7 +1,8 @@
 import { Plus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { listLlmsModelsGet } from '../../client/sdk.gen'
+import { streamMessage } from '../../client/stream'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
@@ -15,22 +16,7 @@ const mockConversations = [
   { id: 'c3', title: 'Follow-up UX polish backlog' },
 ]
 
-const mockMessages: ChatMessage[] = [
-  {
-    id: 'm1',
-    role: 'assistant',
-    content:
-      'Nice direction. For MVP, prioritize send -> stream -> persist flow with visible partial responses and robust retry.',
-    reasoning:
-      'Validated API contract first, then align component boundaries to avoid coupling with future app-level state.',
-  },
-  {
-    id: 'm2',
-    role: 'user',
-    content:
-      'Great. Sketch the chat module with per-message model controls and a clean neutral visual style.',
-  },
-]
+const STREAMING_MESSAGE_ID = '__streaming__'
 
 export function ChatModule() {
   const [draft, setDraft] = useState('')
@@ -43,6 +29,20 @@ export function ChatModule() {
   const [isModelOptionsLoading, setIsModelOptionsLoading] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState<string | null>(null)
   const [modelOptionsRefreshKey, setModelOptionsRefreshKey] = useState(0)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [messages])
 
   useEffect(() => {
     let isCancelled = false
@@ -129,8 +129,88 @@ export function ChatModule() {
     // Placeholder: prompt helper behavior will be implemented with backend integration.
   }
 
-  const handleSendClick = () => {
-    // Placeholder: send behavior will be wired to streaming API integration next.
+  const handleSendClick = async () => {
+    const content = draft.trim()
+    if (!content || isStreaming) return
+
+    setDraft('')
+    setIsStreaming(true)
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+    }
+    setMessages((prev) => [...prev, userMessage])
+
+    const streamingMessage: ChatMessage = {
+      id: STREAMING_MESSAGE_ID,
+      role: 'assistant',
+      content: '',
+    }
+    setMessages((prev) => [...prev, streamingMessage])
+
+    const abort = new AbortController()
+    abortRef.current = abort
+
+    try {
+      for await (const event of streamMessage(
+        {
+          conversation_id: conversationId ?? undefined,
+          content,
+          model_source: modelSource,
+          model,
+          reasoning_effort: reasoningEffort,
+        },
+        abort.signal,
+      )) {
+        if (event.type === 'metadata') {
+          setConversationId(event.conversation_id)
+        } else if (event.type === 'content') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === STREAMING_MESSAGE_ID ? { ...m, content: m.content + event.delta } : m,
+            ),
+          )
+        } else if (event.type === 'reasoning') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === STREAMING_MESSAGE_ID
+                ? { ...m, reasoning: (m.reasoning ?? '') + event.delta }
+                : m,
+            ),
+          )
+        } else if (event.type === 'done') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === STREAMING_MESSAGE_ID ? { ...m, id: `assistant-${Date.now()}` } : m,
+            ),
+          )
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === STREAMING_MESSAGE_ID
+              ? { ...m, id: `assistant-${Date.now()}`, content: m.content || '[Error: stream failed]' }
+              : m,
+          ),
+        )
+      } else {
+        // Remove placeholder if aborted with no content
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === STREAMING_MESSAGE_ID
+              ? { ...m, id: `assistant-${Date.now()}` }
+              : m,
+          ),
+        )
+      }
+    } finally {
+      abortRef.current = null
+      setIsStreaming(false)
+    }
   }
 
   return (
@@ -173,8 +253,8 @@ export function ChatModule() {
           </div>
         </CardHeader>
 
-        <CardContent className="overflow-y-auto">
-          <ChatMessageList messages={mockMessages} />
+        <CardContent className="overflow-y-auto" ref={scrollRef}>
+          <ChatMessageList messages={messages} />
         </CardContent>
 
         <ChatComposer
@@ -185,12 +265,13 @@ export function ChatModule() {
           isModelOptionsLoading={isModelOptionsLoading}
           modelOptionsError={modelOptionsError}
           reasoningEffort={reasoningEffort}
+          isStreaming={isStreaming}
           onDraftChange={setDraft}
           onModelSourceChange={setModelSource}
           onModelChange={setModel}
           onReasoningEffortChange={setReasoningEffort}
           onPromptClick={handlePromptClick}
-          onSendClick={handleSendClick}
+          onSendClick={() => { void handleSendClick() }}
           onRefreshModels={handleRefreshModels}
         />
       </Card>
