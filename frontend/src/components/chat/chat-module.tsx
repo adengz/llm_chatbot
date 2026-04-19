@@ -1,6 +1,7 @@
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
+import { listLlmsModelsGet } from '../../client/sdk.gen'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
@@ -37,6 +38,92 @@ export function ChatModule() {
   const [model, setModel] = useState('qwen3:32b')
   const [reasoningEffort, setReasoningEffort] =
     useState<ReasoningEffort>('medium')
+  const [modelOptionsBySource, setModelOptionsBySource] =
+    useState<Record<ModelSource, string[]>>({})
+  const [isModelOptionsLoading, setIsModelOptionsLoading] = useState(false)
+  const [modelOptionsError, setModelOptionsError] = useState<string | null>(null)
+  const [modelOptionsRefreshKey, setModelOptionsRefreshKey] = useState(0)
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadModels = async () => {
+      setIsModelOptionsLoading(true)
+
+      const { data, error } = await listLlmsModelsGet()
+
+      if (isCancelled) {
+        return
+      }
+
+      if (error || !data || typeof data !== 'object') {
+        setModelOptionsBySource({})
+        setModelOptionsError('Failed to load models from backend. Model list is unavailable.')
+        setIsModelOptionsLoading(false)
+        return
+      }
+
+      const normalizedModelOptions = Object.entries(data).reduce<Record<string, string[]>>(
+        (acc, [source, models]) => {
+          if (!Array.isArray(models)) {
+            return acc
+          }
+
+          const validModels = models.filter(
+            (value): value is string => typeof value === 'string' && value.trim().length > 0,
+          )
+
+          if (validModels.length > 0) {
+            acc[source] = Array.from(new Set(validModels))
+          }
+
+          return acc
+        },
+        {},
+      )
+
+      if (Object.keys(normalizedModelOptions).length > 0) {
+        setModelOptionsBySource(normalizedModelOptions)
+        setModelOptionsError(null)
+      } else {
+        setModelOptionsBySource({})
+        setModelOptionsError('No models returned from backend.')
+      }
+
+      setIsModelOptionsLoading(false)
+    }
+
+    void loadModels()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [modelOptionsRefreshKey])
+
+  const handleRefreshModels = () => {
+    setModelOptionsRefreshKey((k) => k + 1)
+  }
+
+  useEffect(() => {
+    const availableSources = Object.keys(modelOptionsBySource)
+
+    if (availableSources.length === 0) {
+      return
+    }
+
+    if (!availableSources.includes(modelSource)) {
+      const nextSource = availableSources[0]
+      const nextModels = modelOptionsBySource[nextSource] ?? []
+      setModelSource(nextSource)
+      setModel(nextModels[0] ?? '')
+      return
+    }
+
+    const modelsForSource = modelOptionsBySource[modelSource] ?? []
+    if (modelsForSource.length > 0 && !modelsForSource.includes(model)) {
+      setModel(modelsForSource[0])
+    }
+  }, [model, modelOptionsBySource, modelSource])
 
   const handlePromptClick = () => {
     // Placeholder: prompt helper behavior will be implemented with backend integration.
@@ -94,6 +181,9 @@ export function ChatModule() {
           draft={draft}
           modelSource={modelSource}
           model={model}
+          modelOptionsBySource={modelOptionsBySource}
+          isModelOptionsLoading={isModelOptionsLoading}
+          modelOptionsError={modelOptionsError}
           reasoningEffort={reasoningEffort}
           onDraftChange={setDraft}
           onModelSourceChange={setModelSource}
@@ -101,6 +191,7 @@ export function ChatModule() {
           onReasoningEffortChange={setReasoningEffort}
           onPromptClick={handlePromptClick}
           onSendClick={handleSendClick}
+          onRefreshModels={handleRefreshModels}
         />
       </Card>
     </div>

@@ -9,4 +9,4 @@ export type ChatMessage = {
 
 export type ReasoningEffort = 'low' | 'medium' | 'high'
 
-export type ModelSource = 'ollama_cloud' | 'ollama_local'
+export type ModelSource = string

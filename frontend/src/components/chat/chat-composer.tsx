@@ -1,5 +1,5 @@
-import { Check, ChevronLeft, ChevronRight, SendHorizontal, Sparkles } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Check, ChevronRight, RefreshCw, SendHorizontal, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
@@ -9,6 +9,9 @@ type ChatComposerProps = {
   draft: string
   modelSource: ModelSource
   model: string
+  modelOptionsBySource: Record<ModelSource, string[]>
+  isModelOptionsLoading: boolean
+  modelOptionsError: string | null
   reasoningEffort: ReasoningEffort
   onDraftChange: (value: string) => void
   onModelSourceChange: (value: ModelSource) => void
@@ -16,12 +19,16 @@ type ChatComposerProps = {
   onReasoningEffortChange: (value: ReasoningEffort) => void
   onPromptClick: () => void
   onSendClick: () => void
+  onRefreshModels: () => void
 }
 
 export function ChatComposer({
   draft,
   modelSource,
   model,
+  modelOptionsBySource,
+  isModelOptionsLoading,
+  modelOptionsError,
   reasoningEffort,
   onDraftChange,
   onModelSourceChange,
@@ -29,35 +36,53 @@ export function ChatComposer({
   onReasoningEffortChange,
   onPromptClick,
   onSendClick,
+  onRefreshModels,
 }: ChatComposerProps) {
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
-  const [pickerStep, setPickerStep] = useState<'source' | 'model'>('source')
   const [pendingSource, setPendingSource] = useState<ModelSource>(modelSource)
+  const [modelFilter, setModelFilter] = useState('')
+  const pickerRef = useRef<HTMLDivElement>(null)
 
-  const modelOptionsBySource = useMemo<Record<ModelSource, string[]>>(
-    () => ({
-      ollama_cloud: ['qwen3:32b', 'llama3.1:8b'],
-      ollama_local: ['llama3.1:8b'],
-    }),
-    [],
-  )
-
-  const modelOptions = modelOptionsBySource[pendingSource] ?? []
+  const sourceOptions = Object.keys(modelOptionsBySource)
+  const allModelOptions = modelOptionsBySource[pendingSource] ?? []
+  const modelOptions = modelFilter
+    ? allModelOptions.filter((m) => m.toLowerCase().includes(modelFilter.toLowerCase()))
+    : allModelOptions
 
   const openPicker = () => {
     setIsModelPickerOpen(true)
-    setPickerStep('source')
     setPendingSource(modelSource)
+    setModelFilter('')
   }
 
   const closePicker = () => {
     setIsModelPickerOpen(false)
-    setPickerStep('source')
+    setModelFilter('')
   }
+
+  useEffect(() => {
+    if (!isModelPickerOpen) return
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        closePicker()
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePicker()
+    }
+
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isModelPickerOpen])
 
   const handleSourceSelected = (source: ModelSource) => {
     setPendingSource(source)
-    setPickerStep('model')
+    setModelFilter('')
   }
 
   const handleModelSelected = (selectedModel: string) => {
@@ -68,11 +93,27 @@ export function ChatComposer({
 
   return (
     <div className="border-t border-border/60 bg-card p-4">
+      {modelOptionsError && (
+        <p className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {modelOptionsError}
+        </p>
+      )}
+
       <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
         <label className="space-y-1">
-          <span className="text-xs text-muted-foreground">Model</span>
-          <div className="relative"
-          >
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Model</span>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground disabled:opacity-40"
+              aria-label="Refresh models"
+              disabled={isModelOptionsLoading}
+              onClick={onRefreshModels}
+            >
+              <RefreshCw className="size-3" />
+            </button>
+          </div>
+          <div className="relative" ref={pickerRef}>
             <button
               type="button"
               className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-left"
@@ -80,62 +121,82 @@ export function ChatComposer({
               aria-haspopup="menu"
               aria-expanded={isModelPickerOpen}
             >
-              <span className="truncate">{`${modelSource} / ${model}`}</span>
+              <span className="truncate">{model ? `${modelSource} / ${model}` : 'Select model'}</span>
               <ChevronRight className="size-4 text-muted-foreground" />
             </button>
 
             {isModelPickerOpen && (
-              <div className="absolute z-20 mt-2 w-full rounded-md border border-border bg-popover p-1 shadow-lg">
-                {pickerStep === 'source' ? (
-                  <div className="space-y-1" role="menu" aria-label="Model sources">
-                    <p className="px-2 py-1 text-xs text-muted-foreground">
-                      Select model source
-                    </p>
-                    {(Object.keys(modelOptionsBySource) as ModelSource[]).map((source) => (
+              <div className="absolute bottom-full z-20 mb-2 flex rounded-md border border-border bg-popover shadow-lg">
+                {/* Source panel */}
+                <div className="w-44 border-r border-border/60 p-1" role="menu" aria-label="Model sources">
+                  <p className="px-2 py-1 text-xs text-muted-foreground">Source</p>
+                  {isModelOptionsLoading && (
+                    <p className="px-2 py-2 text-xs text-muted-foreground">Loading…</p>
+                  )}
+                  {!isModelOptionsLoading && modelOptionsError && (
+                    <p className="px-2 py-2 text-xs text-destructive">{modelOptionsError}</p>
+                  )}
+                  <div className="max-h-52 overflow-y-auto">
+                    {sourceOptions.map((source) => (
                       <button
                         key={source}
                         type="button"
-                        className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-muted"
+                        className={`flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-muted ${pendingSource === source ? 'bg-muted font-medium' : ''}`}
+                        disabled={isModelOptionsLoading}
                         onClick={() => handleSourceSelected(source)}
                       >
                         <span>{source}</span>
                         <ChevronRight className="size-4 text-muted-foreground" />
                       </button>
                     ))}
+                    {!isModelOptionsLoading && sourceOptions.length === 0 && (
+                      <p className="px-2 py-2 text-xs text-muted-foreground">No sources available.</p>
+                    )}
                   </div>
-                ) : (
-                  <div className="space-y-1" role="menu" aria-label={`Models under ${pendingSource}`}>
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-xs text-muted-foreground hover:bg-muted"
-                      onClick={() => setPickerStep('source')}
-                    >
-                      <ChevronLeft className="size-3" />
-                      Back to sources
-                    </button>
+                </div>
+
+                {/* Model panel */}
+                <div className="w-52 p-1" role="menu" aria-label={`Models under ${pendingSource}`}>
+                  <p className="px-2 py-1 text-xs text-muted-foreground">{pendingSource || 'Models'}</p>
+                  {pendingSource && (
+                    <div className="px-1 pb-1">
+                      <input
+                        type="text"
+                        className="h-7 w-full rounded border border-input bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="Filter models…"
+                        value={modelFilter}
+                        onChange={(e) => setModelFilter(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                  <div className="max-h-52 overflow-y-auto">
                     {modelOptions.map((modelName) => (
                       <button
                         key={modelName}
                         type="button"
                         className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-muted"
+                        disabled={isModelOptionsLoading}
                         onClick={() => handleModelSelected(modelName)}
                       >
-                        <span>{modelName}</span>
+                        <span className="truncate">{modelName}</span>
                         {modelSource === pendingSource && model === modelName && (
-                          <Check className="size-4 text-primary" />
+                          <Check className="ml-2 size-4 shrink-0 text-primary" />
                         )}
                       </button>
                     ))}
+                    {!isModelOptionsLoading && modelOptions.length === 0 && (
+                      <p className="px-2 py-2 text-xs text-muted-foreground">
+                        {!pendingSource
+                          ? 'Select a source.'
+                          : modelFilter
+                          ? 'No models match your filter.'
+                          : 'No models for this source.'}
+                      </p>
+                    )}
                   </div>
-                )}
-
-                <button
-                  type="button"
-                  className="mt-1 w-full rounded-sm px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-                  onClick={closePicker}
-                >
-                  Close
-                </button>
+                </div>
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ from typing import Protocol
 
 from pydantic import UUID1
 from fastapi import FastAPI, Request, Depends, HTTPException, Body
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from api.infra import lifespan
@@ -38,6 +39,13 @@ def get_user_id() -> int:
 
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 
 def get_db(request: Request) -> DBClient:
