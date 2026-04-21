@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Generated API client code is machine-written and excluded from linting.
+  globalIgnores(['dist', '**/*.gen.ts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
