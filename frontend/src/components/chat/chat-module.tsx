@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type UIEvent } from 'react'
 
 import {
   deleteConversationConversationsConversationIdDelete,
@@ -17,6 +17,7 @@ import type { ChatMessage, ModelSource, ReasoningEffort } from './chat-types'
 import { ConversationSidebar } from './conversation-sidebar'
 
 const STREAMING_MESSAGE_ID = '__streaming__'
+const HISTORY_PAGE_SIZE = 100
 
 function toChatMessage(message: ApiMessage, index: number): ChatMessage {
   return {
@@ -42,15 +43,29 @@ export function ChatModule() {
   const [conversationsError, setConversationsError] = useState<string | null>(null)
   const [messagesError, setMessagesError] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null)
+  const [hasMoreHistory, setHasMoreHistory] = useState(false)
+  const [isLoadingOlderHistory, setIsLoadingOlderHistory] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const skipNextHistoryLoadRef = useRef(false)
+  const activeConversationIdRef = useRef<string | null>(null)
+  const forceScrollRef = useRef(false)
+
+  useEffect(() => {
+    activeConversationIdRef.current = conversationId
+  }, [conversationId])
 
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    if (forceScrollRef.current) {
+      forceScrollRef.current = false
+      el.scrollTop = el.scrollHeight
+      return
+    }
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     if (isNearBottom) {
       el.scrollTop = el.scrollHeight
@@ -164,6 +179,9 @@ export function ChatModule() {
     if (!conversationId) {
       setMessages([])
       setMessagesError(null)
+      setHistoryCursor(null)
+      setHasMoreHistory(false)
+      setIsLoadingOlderHistory(false)
       return
     }
 
@@ -177,39 +195,29 @@ export function ChatModule() {
     const loadHistory = async () => {
       setMessagesError(null)
 
-      let cursor: string | null | undefined = undefined
-      const history: ApiMessage[] = []
+      const response: { data?: ApiMessage[]; error?: unknown } = await listMessagesConversationsConversationIdMessagesGet({
+        path: { conversation_id: conversationId },
+        query: { limit: HISTORY_PAGE_SIZE },
+      })
 
-      while (true) {
-        const response: { data?: ApiMessage[]; error?: unknown } = await listMessagesConversationsConversationIdMessagesGet({
-          path: { conversation_id: conversationId },
-          query: { cursor, limit: 100 },
-        })
-
-        if (isCancelled) {
-          return
-        }
-
-        if (response.error || !Array.isArray(response.data)) {
-          setMessages([])
-          setMessagesError('Failed to load conversation history.')
-          return
-        }
-
-        if (response.data.length === 0) {
-          break
-        }
-
-        history.push(...response.data)
-        cursor = response.data[response.data.length - 1]?.created_at ?? null
-
-        if (!cursor) {
-          break
-        }
+      if (isCancelled) {
+        return
       }
 
-      const chronological = history.reverse().map(toChatMessage)
+      if (response.error || !Array.isArray(response.data)) {
+        setMessages([])
+        setMessagesError('Failed to load conversation history.')
+        setHistoryCursor(null)
+        setHasMoreHistory(false)
+        return
+      }
+
+      const nextCursor = response.data[response.data.length - 1]?.created_at ?? null
+      const chronological = [...response.data].reverse().map(toChatMessage)
+
       setMessages(chronological)
+      setHistoryCursor(nextCursor)
+      setHasMoreHistory(response.data.length === HISTORY_PAGE_SIZE && Boolean(nextCursor))
     }
 
     void loadHistory()
@@ -218,6 +226,81 @@ export function ChatModule() {
       isCancelled = true
     }
   }, [conversationId])
+
+  const loadOlderHistory = async () => {
+    if (!conversationId || !hasMoreHistory || isLoadingOlderHistory || !historyCursor) {
+      return
+    }
+
+    const targetConversationId = conversationId
+    const container = scrollRef.current
+    const previousScrollTop = container?.scrollTop ?? 0
+    const previousScrollHeight = container?.scrollHeight ?? 0
+
+    setIsLoadingOlderHistory(true)
+
+    const response: { data?: ApiMessage[]; error?: unknown } = await listMessagesConversationsConversationIdMessagesGet({
+      path: { conversation_id: targetConversationId },
+      query: { cursor: historyCursor, limit: HISTORY_PAGE_SIZE },
+    })
+
+    if (activeConversationIdRef.current !== targetConversationId) {
+      setIsLoadingOlderHistory(false)
+      return
+    }
+
+    if (response.error || !Array.isArray(response.data)) {
+      setMessagesError('Failed to load older messages.')
+      setIsLoadingOlderHistory(false)
+      return
+    }
+
+    if (response.data.length === 0) {
+      setHasMoreHistory(false)
+      setHistoryCursor(null)
+      setIsLoadingOlderHistory(false)
+      return
+    }
+
+    const nextCursor = response.data[response.data.length - 1]?.created_at ?? null
+    const olderMessages = [...response.data].reverse().map(toChatMessage)
+
+    setMessages((prev) => [...olderMessages, ...prev])
+    setHistoryCursor(nextCursor)
+    setHasMoreHistory(response.data.length === HISTORY_PAGE_SIZE && Boolean(nextCursor))
+    setIsLoadingOlderHistory(false)
+
+    requestAnimationFrame(() => {
+      const currentContainer = scrollRef.current
+      if (!currentContainer) {
+        return
+      }
+      const currentScrollHeight = currentContainer.scrollHeight
+      currentContainer.scrollTop = currentScrollHeight - previousScrollHeight + previousScrollTop
+    })
+  }
+
+  const handleHistoryScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (!hasMoreHistory || isLoadingOlderHistory) {
+      return
+    }
+
+    if (event.currentTarget.scrollTop <= 80) {
+      void loadOlderHistory()
+    }
+  }
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container || !conversationId || !hasMoreHistory || isLoadingOlderHistory) {
+      return
+    }
+
+    // If content does not overflow yet, prefetch older pages so users can scroll history.
+    if (container.scrollHeight <= container.clientHeight + 8) {
+      void loadOlderHistory()
+    }
+  }, [conversationId, hasMoreHistory, isLoadingOlderHistory, messages.length])
 
   useEffect(() => {
     const availableSources = Object.keys(modelOptionsBySource)
@@ -291,6 +374,7 @@ export function ChatModule() {
     setDraft('')
     setIsStreaming(true)
     setMessagesError(null)
+    forceScrollRef.current = true
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -409,7 +493,10 @@ export function ChatModule() {
           </div>
         </CardHeader>
 
-        <CardContent className="overflow-y-auto" ref={scrollRef}>
+        <CardContent className="overflow-y-auto" ref={scrollRef} onScroll={handleHistoryScroll}>
+          {isLoadingOlderHistory && (
+            <p className="mb-3 text-center text-xs text-muted-foreground">Loading older messages...</p>
+          )}
           {messagesError && (
             <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {messagesError}
