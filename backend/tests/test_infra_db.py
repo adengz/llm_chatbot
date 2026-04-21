@@ -29,6 +29,9 @@ class DBHarness(Protocol):
     async def count_conversations(self, user_id: int, conversation_id: uuid.UUID) -> int:
         ...
 
+    async def count_messages(self, conversation_id: uuid.UUID) -> int:
+        ...
+
     async def insert_message(self, conversation_id: uuid.UUID, created_at: datetime, role: str, content: str) -> None:
         ...
 
@@ -71,6 +74,14 @@ class ScyllapyHarness:
         rows = await self.client.scylla.execute(
             'SELECT COUNT(1) AS count FROM conversations WHERE user_id = ? AND conversation_id = ?',
             [extra_types.BigInt(user_id), conversation_id],
+        )
+        row = rows.first()
+        return row['count'] if row else 0
+    
+    async def count_messages(self, conversation_id: uuid.UUID) -> int:
+        rows = await self.client.scylla.execute(
+            'SELECT COUNT(1) AS count FROM messages WHERE conversation_id = ?',
+            [conversation_id],
         )
         row = rows.first()
         return row['count'] if row else 0
@@ -141,9 +152,22 @@ class DBClientContract:
         user_id = 0
         conversation_id = await db_harness.insert_conversation(user_id=user_id)
 
+        assert await db_harness.count_conversations(user_id, conversation_id) == 1
+
+        now = datetime.now(timezone.utc)
+        messages_data = [
+            (now - timedelta(seconds=0), Role.USER.value, 'Anybody?'),
+            (now - timedelta(seconds=5), Role.USER.value, 'Hello?'),
+        ]
+        for created_at, role, content in messages_data:
+            await db_harness.insert_message(conversation_id, created_at, role, content)
+        
+        assert await db_harness.count_messages(conversation_id) == 2
+
         await db_client.delete_conversation(user_id, conversation_id)
 
         assert await db_harness.count_conversations(user_id, conversation_id) == 0
+        assert await db_harness.count_messages(conversation_id) == 0
 
     @pytest.mark.asyncio
     async def test_list_conversations(self, db_client, db_harness):
