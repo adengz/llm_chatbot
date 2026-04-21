@@ -126,9 +126,9 @@ describe('ConversationSidebar', () => {
   it('shows pending delete state until async delete resolves', async () => {
     const user = userEvent.setup()
 
-    let resolveDelete: (() => void) | null = null
+    let resolveDelete!: () => void
     const deletePromise = new Promise<void>((resolve) => {
-      resolveDelete = resolve
+      resolveDelete = () => resolve()
     })
 
     const { onDeleteConversation } = renderSidebar({
@@ -141,7 +141,7 @@ describe('ConversationSidebar', () => {
     expect(row).toHaveClass('opacity-40', 'pointer-events-none')
     expect(onDeleteConversation).toHaveBeenCalledWith('conv-1')
 
-    resolveDelete?.()
+    resolveDelete()
     await waitFor(() => {
       expect(row).not.toHaveClass('opacity-40')
     })
