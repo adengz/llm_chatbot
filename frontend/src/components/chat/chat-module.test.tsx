@@ -32,6 +32,30 @@ async function* emit(events: StreamEvent[]) {
   }
 }
 
+async function* emitUntilAborted(signal?: AbortSignal) {
+  yield { type: 'metadata', conversation_id: 'conv-stop' } as const
+  yield { type: 'content', delta: 'Partial output' } as const
+
+  await new Promise<void>((resolve, reject) => {
+    if (!signal) {
+      resolve()
+      return
+    }
+
+    const abortError = new Error('Aborted')
+    abortError.name = 'AbortError'
+
+    if (signal.aborted) {
+      reject(abortError)
+      return
+    }
+
+    signal.addEventListener('abort', () => reject(abortError), { once: true })
+  })
+
+  yield { type: 'done' } as const
+}
+
 describe('ChatModule', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -85,7 +109,7 @@ describe('ChatModule', () => {
     render(<ChatModule />)
 
     await user.type(
-      screen.getByPlaceholderText('Ask anything about your app and API integration...'),
+      screen.getByPlaceholderText('Send a message'),
       'Hi there',
     )
     await user.click(screen.getByRole('button', { name: 'Send message' }))
@@ -114,12 +138,41 @@ describe('ChatModule', () => {
     render(<ChatModule />)
 
     await user.type(
-      screen.getByPlaceholderText('Ask anything about your app and API integration...'),
+      screen.getByPlaceholderText('Send a message'),
       'Trigger error',
     )
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByText('model overloaded')).toBeInTheDocument()
     expect(await screen.findByText('[Error: model overloaded]')).toBeInTheDocument()
+  })
+
+  it('aborts in-flight stream when user clicks stop', async () => {
+    const user = userEvent.setup()
+
+    streamMessageMock.mockImplementation((_, signal?: AbortSignal) => emitUntilAborted(signal))
+
+    render(<ChatModule />)
+
+    await user.type(
+      screen.getByPlaceholderText('Send a message'),
+      'Stop this response',
+    )
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(await screen.findByText('Partial output')).toBeInTheDocument()
+
+    const stopButton = await screen.findByRole('button', { name: 'Stop streaming response' })
+    await user.click(stopButton)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Stop streaming response' })).not.toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      const [, signal] = streamMessageMock.mock.calls[0]
+      expect(signal).toBeDefined()
+      expect((signal as AbortSignal).aborted).toBe(true)
+    })
   })
 })

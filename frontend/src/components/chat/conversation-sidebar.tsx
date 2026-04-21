@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 
 import type { Conversation as ApiConversation } from '../../client/types.gen'
 import { Button } from '../ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 
 type ConversationSidebarProps = {
   conversations: ApiConversation[]
@@ -68,7 +68,6 @@ export function ConversationSidebar({
             <Plus className="size-4" />
           </Button>
         </div>
-        <CardDescription>MVP chat continuity surface</CardDescription>
       </CardHeader>
 
       <CardContent className="min-h-0 space-y-2 overflow-y-auto">
@@ -129,9 +128,6 @@ export function ConversationSidebar({
                     onDoubleClick={(e) => { e.stopPropagation(); startRename(conversation) }}
                   >
                     {conversation.title}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {isActive ? 'Active conversation' : 'Click to load history'}
                   </p>
                 </button>
               )}

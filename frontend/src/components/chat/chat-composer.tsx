@@ -114,7 +114,7 @@ export function ChatComposer({
               }
             }
           }}
-          placeholder="Ask anything about your app and API integration..."
+          placeholder="Send a message"
           className="min-h-24"
         />
       </div>

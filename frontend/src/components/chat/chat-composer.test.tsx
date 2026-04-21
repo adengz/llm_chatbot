@@ -66,7 +66,7 @@ describe('ChatComposer', () => {
   it('submits on Enter (without Shift) when send is allowed', () => {
     const { onSendClick } = renderComposer({ draft: 'Question?' })
 
-    const input = screen.getByPlaceholderText('Ask anything about your app and API integration...')
+    const input = screen.getByPlaceholderText('Send a message')
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false })
 
     expect(onSendClick).toHaveBeenCalledTimes(1)
@@ -74,14 +74,14 @@ describe('ChatComposer', () => {
 
   it('does not submit on Enter with Shift or while streaming', () => {
     const nonStreaming = renderComposer({ draft: 'Question?' })
-    const input1 = screen.getByPlaceholderText('Ask anything about your app and API integration...')
+    const input1 = screen.getByPlaceholderText('Send a message')
     fireEvent.keyDown(input1, { key: 'Enter', shiftKey: true })
     expect(nonStreaming.onSendClick).not.toHaveBeenCalled()
 
     nonStreaming.unmount()
 
     const streaming = renderComposer({ draft: 'Question?', isStreaming: true })
-    const input2 = screen.getByPlaceholderText('Ask anything about your app and API integration...')
+    const input2 = screen.getByPlaceholderText('Send a message')
     fireEvent.keyDown(input2, { key: 'Enter', shiftKey: false })
     expect(streaming.onSendClick).not.toHaveBeenCalled()
   })

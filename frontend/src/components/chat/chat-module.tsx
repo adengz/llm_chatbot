@@ -9,8 +9,7 @@ import {
 } from '../../client/sdk.gen'
 import type { Conversation as ApiConversation, Message as ApiMessage } from '../../client/types.gen'
 import { streamMessage } from '../../client/stream'
-import { Badge } from '../ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { ChatComposer } from './chat-composer'
 import { ChatMessageList } from './chat-message-list'
 import type { ChatMessage, ModelSource, ReasoningEffort } from './chat-types'
@@ -53,6 +52,10 @@ export function ChatModule() {
   const skipNextHistoryLoadRef = useRef(false)
   const activeConversationIdRef = useRef<string | null>(null)
   const forceScrollRef = useRef(false)
+
+  const activeConversationTitle = conversations.find(
+    (conversation) => conversation.conversation_id === conversationId,
+  )?.title
 
   useEffect(() => {
     activeConversationIdRef.current = conversationId
@@ -484,12 +487,7 @@ export function ChatModule() {
       <Card className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] overflow-hidden">
         <CardHeader className="flex-row items-center justify-between">
           <div>
-            <CardTitle>Chat Module Sketch</CardTitle>
-            <CardDescription>shadcn + Tailwind MVP composition</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Badge variant="outline">source: {modelSource}</Badge>
-            <Badge variant="secondary">reasoning: {reasoningEffort}</Badge>
+            <CardTitle>{activeConversationTitle ?? 'New conversation'}</CardTitle>
           </div>
         </CardHeader>
 
