@@ -1,12 +1,13 @@
 import uuid
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from fastapi.testclient import TestClient
 
-from api.main import app, get_db, get_llms, DBClient
+from api.main import app, get_db, get_llms, get_disconnect_checker, DBClient
 from api.domain.models import ReasoningEffort, Message, Role, Conversation
 
 
@@ -23,37 +24,77 @@ def api_ut_toolkit():
     app.dependency_overrides.clear()
 
 
-class LLMWithFixedResponse:
+class ModelLister:
 
-    def __init__(self, reasoning_tokens: list[str], content_tokens: list[str]):
-        self.calls = []
-        self.reasoning_tokens = reasoning_tokens
-        self.content_tokens = content_tokens
-
-    async def stream_response(self, messages: list[Message], model: str, reasoning_effort: ReasoningEffort):
-        self.calls.append({
-            'messages': messages,
-            'model': model,
-            'reasoning_effort': reasoning_effort,
-        })
-        for token in self.reasoning_tokens:
-            yield 'reasoning', token
-        for token in self.content_tokens:
-            yield 'content', token
-
-
-class LLMWithFixedModels:
-
-    def __init__(self, models: list[str], error: Exception | None = None):
-        self.models = models
-        self.error = error
+    def __init__(self, models: list[str], ex: Exception | None = None):
         self.calls = 0
+        self.models = models
+        self.ex = ex
 
     async def list_models(self) -> list[str]:
         self.calls += 1
-        if self.error is not None:
-            raise self.error
+        if self.ex is not None:
+            raise self.ex
         return self.models
+    
+
+class Stream:
+
+    def __init__(self, chunks: list[SimpleNamespace], ex: Exception | None = None):
+        self._chunks = chunks
+        self._index = 0
+        self._ex = ex
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._index < len(self._chunks):
+            chunk = self._chunks[self._index]
+            self._index += 1
+            return chunk
+        if self._ex is not None:
+            ex = self._ex
+            self._ex = None
+            raise ex
+        raise StopAsyncIteration
+
+    async def close(self):
+        self.closed = True
+
+
+class ResponseStreamer:
+
+    def __init__(self, reasoning_tokens: list[str], content_tokens: list[str], ex: Exception | None = None):
+        self.calls = []
+        self.reasoning_tokens = reasoning_tokens
+        self.content_tokens = content_tokens
+        self.ex = ex
+        self.last_stream = None
+
+    @staticmethod
+    def _chunk(reasoning: str | None = None, content: str | None = None, finish_reason: str | None = None) -> SimpleNamespace:
+        if reasoning is not None:
+            delta = SimpleNamespace(reasoning=reasoning, content=None)
+        elif content is not None:
+            delta = SimpleNamespace(content=content)
+        else:
+            delta = SimpleNamespace(content=None)
+        return SimpleNamespace(choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)])
+
+    async def stream_response(self, context: list[Message], model: str, reasoning_effort: ReasoningEffort):
+        self.calls.append({
+            'messages': context,
+            'model': model,
+            'reasoning_effort': reasoning_effort,
+        })
+        chunks = []
+        chunks.extend([self._chunk(reasoning=token) for token in self.reasoning_tokens])
+        chunks.extend([self._chunk(content=token) for token in self.content_tokens])
+        chunks.append(self._chunk(finish_reason='stop'))
+        self.last_stream = Stream(chunks=chunks, ex=self.ex)
+        return self.last_stream
 
 
 def parse_sse_events(body: str) -> list[dict]:
@@ -74,8 +115,8 @@ class TestAppEndpoints:
 
         local_models = ['michael-de-santa', 'trevor-philips']
         cloud_models = ['claude']
-        llm_clients['lifeinvader_local'] = LLMWithFixedModels(models=local_models)
-        llm_clients['lifeinvader_cloud'] = LLMWithFixedModels(models=cloud_models)
+        llm_clients['lifeinvader_local'] = ModelLister(models=local_models)
+        llm_clients['lifeinvader_cloud'] = ModelLister(models=cloud_models)
 
         response = client.get('/models')
 
@@ -90,8 +131,8 @@ class TestAppEndpoints:
     def test_list_llms_skips_unavailable_sources(self, api_ut_toolkit):
         client, _, llm_clients = api_ut_toolkit
 
-        llm_clients['lifeinvader_local'] = LLMWithFixedModels(models=['michael-de-santa', 'trevor-philips'])
-        llm_clients['lifeinvader_cloud'] = LLMWithFixedModels(models=[], error=RuntimeError('service unavailable'))
+        llm_clients['lifeinvader_local'] = ModelLister(models=['michael-de-santa', 'trevor-philips'])
+        llm_clients['lifeinvader_cloud'] = ModelLister(models=[], ex=RuntimeError('service unavailable'))
 
         response = client.get('/models')
 
@@ -124,7 +165,7 @@ class TestAppEndpoints:
 
         reasoning_tokens = ['Oh', ' my', ' fucking', ' god', '!', ' It\'s',' Trevor', ' Philips', '...']
         content_tokens = ['Trevor', '?']
-        fake_llm = LLMWithFixedResponse(reasoning_tokens=reasoning_tokens, content_tokens=content_tokens)
+        fake_llm = ResponseStreamer(reasoning_tokens=reasoning_tokens, content_tokens=content_tokens)
         model_source = 'lifeinvader_cloud'
         llm_clients[model_source] = fake_llm
 
@@ -181,7 +222,7 @@ class TestAppEndpoints:
 
         reasoning_tokens = ['WTF', '...']
         content_tokens = ['Hey', '...', ' It\'s', ' good', ' to', ' see', ' you', ',', ' man', '.']
-        fake_llm = LLMWithFixedResponse(reasoning_tokens=reasoning_tokens, content_tokens=content_tokens)
+        fake_llm = ResponseStreamer(reasoning_tokens=reasoning_tokens, content_tokens=content_tokens)
         model_source = 'ollama_local'
         llm_clients[model_source] = fake_llm
 
@@ -238,6 +279,80 @@ class TestAppEndpoints:
         assert fake_llm.calls[0]['reasoning_effort'] == reasoning_effort
         assert len(fake_llm.calls[0]['messages']) == 3
         assert [m.content for m in fake_llm.calls[0]['messages']] == [message, 'Trevor?', 'Somebody say yoga?']
+
+    def test_create_message_disconnect_mid_stream(self, api_ut_toolkit):
+        client, mock_db, llm_clients = api_ut_toolkit
+
+        async def disconnect_after_first_chunk() -> bool:
+            disconnect_after_first_chunk.calls += 1
+            return disconnect_after_first_chunk.calls >= 2
+
+        disconnect_after_first_chunk.calls = 0
+        app.dependency_overrides[get_disconnect_checker] = lambda: disconnect_after_first_chunk
+
+        reasoning_tokens = ['...']
+        content_tokens = ['Woof']
+        fake_llm = ResponseStreamer(reasoning_tokens=reasoning_tokens, content_tokens=content_tokens)
+        model_source = 'lifeinvader_local'
+        llm_clients[model_source] = fake_llm
+
+        conversation_id = uuid.uuid1()
+        mock_db.create_conversation.return_value = conversation_id
+
+        response = client.post('/messages', json={
+            'content': '',
+            'conversation_id': None,
+            'model_source': model_source,
+            'model': 'chop'
+        })
+
+        assert response.status_code == 200
+        assert response.headers['content-type'].startswith('text/event-stream')
+
+        events = parse_sse_events(response.text)
+        assert events == [
+            {'type': 'metadata', 'conversation_id': str(conversation_id)},
+            {'type': 'reasoning', 'delta': '...'},
+        ]
+
+        assert disconnect_after_first_chunk.calls == 2
+        assert fake_llm.last_stream is not None
+        assert fake_llm.last_stream.closed is True
+
+        assert mock_db.create_message.await_count == 1
+
+    def test_create_message_llm_error_during_streaming(self, api_ut_toolkit):
+        client, mock_db, llm_clients = api_ut_toolkit
+
+        reasoning_tokens = ['...']
+        content_tokens = ['Woof']
+        llm_error = RuntimeError('stream failed')
+        fake_llm = ResponseStreamer(reasoning_tokens=reasoning_tokens, content_tokens=content_tokens, ex=llm_error)
+        model_source = 'lifeinvader_local'
+        llm_clients[model_source] = fake_llm
+
+        conversation_id = uuid.uuid1()
+        mock_db.create_conversation.return_value = conversation_id
+
+        response = client.post('/messages', json={
+            'content': '',
+            'conversation_id': None,
+            'model_source': model_source,
+            'model': 'chop',
+        })
+
+        assert response.status_code == 200
+        assert response.headers['content-type'].startswith('text/event-stream')
+
+        events = parse_sse_events(response.text)
+        assert events[0] == {'type': 'metadata', 'conversation_id': str(conversation_id)}
+        assert events[-1] == {'type': 'error', 'exception': str(llm_error)}
+        assert not any(event['type'] == 'done' for event in events)
+
+        assert fake_llm.last_stream is not None
+        assert fake_llm.last_stream.closed is True
+
+        assert mock_db.create_message.await_count == 1
 
     def test_list_conversations(self, api_ut_toolkit):
         client, mock_db, _ = api_ut_toolkit
