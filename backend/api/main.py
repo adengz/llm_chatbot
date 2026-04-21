@@ -1,15 +1,16 @@
 import json
 import asyncio
 from datetime import datetime, timezone
-from typing import Protocol
+from typing import Protocol, Callable, Awaitable, AsyncGenerator
 
 from pydantic import UUID1
 from fastapi import FastAPI, Request, Depends, HTTPException, Body
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from api.infra import lifespan
-from api.infra.llm import AsyncLLMAssistant
-from api.domain.models import MessageRequest, Message, Role, Conversation
+from api.infra.llm import AsyncLLMClient
+from api.domain.models import MessageRequest, ReasoningEffort, Message, Role, Conversation
 
 
 class DBClient(Protocol):
@@ -39,13 +40,26 @@ def get_user_id() -> int:
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
 
 def get_db(request: Request) -> DBClient:
     return request.app.state.db_client
 
 
-def get_llms(request: Request) -> dict[str, AsyncLLMAssistant]:
+def get_llms(request: Request) -> dict[str, AsyncLLMClient]:
     return request.app.state.llm_clients
+
+
+def get_disconnect_checker(request: Request) -> Callable[[], Awaitable[bool]]:
+    async def checker() -> bool:
+        return await request.is_disconnected()
+    return checker
 
 
 async def list_history(db: DBClient, conversation_id: UUID1, cursor: datetime) -> list[Message]:
@@ -59,8 +73,56 @@ async def list_history(db: DBClient, conversation_id: UUID1, cursor: datetime) -
     return messages
 
 
+sse_event = lambda obj: f'data: {json.dumps(obj)}\n\n'
+
+
+async def generate_stream(
+    conversation_id: UUID1,
+    context: list[Message],
+    llm: AsyncLLMClient,
+    model: str,
+    reasoning_effort: ReasoningEffort,
+    db: DBClient,
+    is_disconnected: Callable[[], Awaitable[bool]]
+):
+    yield sse_event({'type': 'metadata', 'conversation_id': str(conversation_id)})
+
+    assistant_content = []
+    stream = None
+    client_disconnected = False
+
+    try:
+        stream = await llm.stream_response(context=context, model=model, reasoning_effort=reasoning_effort)
+        async for chunk in stream:
+            client_disconnected = await is_disconnected()
+            if client_disconnected:
+                assistant_content = None
+                break
+
+            if hasattr(chunk.choices[0].delta, 'reasoning'):
+                yield sse_event({'type': 'reasoning', 'delta': chunk.choices[0].delta.reasoning})
+            elif chunk.choices[0].delta.content:
+                assistant_content.append(chunk.choices[0].delta.content)
+                yield sse_event({'type': 'content', 'delta': chunk.choices[0].delta.content})
+
+        if not client_disconnected:
+            yield sse_event({'type': 'done'})
+
+    except Exception as exc:
+        assistant_content = None
+        if not client_disconnected:
+            yield sse_event({'type': 'error', 'exception': str(exc)})
+    finally:
+        if stream is not None:
+            await stream.close()
+
+    if assistant_content:
+        message = Message(conversation_id=conversation_id, role=Role.ASSISTANT, content=''.join(assistant_content))
+        await db.create_message(message=message)
+
+
 @app.get('/models')
-async def list_llms(llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> dict[str, list[str]]:
+async def list_llms(llms: dict[str, AsyncLLMClient] = Depends(get_llms)) -> dict[str, list[str]]:
     items = list(llms.items())
     results = await asyncio.gather(*(llm.list_models() for _, llm in items), return_exceptions=True)
 
@@ -74,8 +136,12 @@ async def list_llms(llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> d
 
 
 @app.post('/messages')
-async def create_message(req: MessageRequest, db: DBClient = Depends(get_db),
-                         llms: dict[str, AsyncLLMAssistant] = Depends(get_llms)) -> StreamingResponse:
+async def create_message(
+    req: MessageRequest,
+    db: DBClient = Depends(get_db), 
+    llms: dict[str, AsyncLLMClient] = Depends(get_llms),
+    is_disconnected: Callable[[], Awaitable[bool]] = Depends(get_disconnect_checker),
+) -> StreamingResponse:
     llm = llms.get(req.model_source)
     if llm is None:
         raise HTTPException(status_code=400, detail=f'Unsupported model source: {req.model_source}')
@@ -90,28 +156,19 @@ async def create_message(req: MessageRequest, db: DBClient = Depends(get_db),
         history = await list_history(db=db, conversation_id=message.conversation_id, cursor=message.created_at)
     
     await db.create_message(message=message)
-
-    async def generate():
-        conversation_id = str(message.conversation_id)
-        yield f"data: {json.dumps({'type': 'metadata', 'conversation_id': conversation_id})}\n\n"
-
-        assistant_content = []
-        async for event_type, delta in llm.stream_response(messages=[message] + history, model=req.model, 
-                                                           reasoning_effort=req.reasoning_effort):
-            if event_type == 'reasoning':
-                yield f"data: {json.dumps({'type': 'reasoning', 'delta': delta})}\n\n"
-                continue
-
-            assistant_content.append(delta)
-            yield f"data: {json.dumps({'type': 'content', 'delta': delta})}\n\n"
-
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-        bot_message = Message(conversation_id=message.conversation_id, role=Role.ASSISTANT,
-                              content=''.join(assistant_content))
-        await db.create_message(message=bot_message)
         
-    return StreamingResponse(generate(), media_type='text/event-stream')
+    return StreamingResponse(
+        generate_stream(
+            conversation_id=message.conversation_id, 
+            context=[message] + history, 
+            llm=llm, 
+            model=req.model,
+            reasoning_effort=req.reasoning_effort, 
+            db=db, 
+            is_disconnected=is_disconnected
+        ), 
+        media_type='text/event-stream'
+    )
 
 
 @app.get('/conversations')

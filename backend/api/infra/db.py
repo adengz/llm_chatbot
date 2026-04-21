@@ -50,6 +50,10 @@ class ScyllapyClient:
 
     async def delete_conversation(self, user_id: int, conversation_id: UUID1) -> None:
         await self._execute_prepared(
+            'DELETE FROM messages WHERE conversation_id = ?',
+            [conversation_id],
+        )
+        await self._execute_prepared(
             'DELETE FROM conversations WHERE user_id = ? AND conversation_id = ?',
             [extra_types.BigInt(user_id), conversation_id],
         )
