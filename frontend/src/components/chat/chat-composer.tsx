@@ -1,4 +1,4 @@
-import { Check, ChevronRight, RefreshCw, SendHorizontal, Sparkles } from 'lucide-react'
+import { Check, ChevronRight, RefreshCw, SendHorizontal, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '../ui/button'
@@ -17,8 +17,8 @@ type ChatComposerProps = {
   onModelSourceChange: (value: ModelSource) => void
   onModelChange: (value: string) => void
   onReasoningEffortChange: (value: ReasoningEffort) => void
-  onPromptClick: () => void
   onSendClick: () => void
+  onStopClick: () => void
   onRefreshModels: () => void
   isStreaming: boolean
 }
@@ -35,8 +35,8 @@ export function ChatComposer({
   onModelSourceChange,
   onModelChange,
   onReasoningEffortChange,
-  onPromptClick,
   onSendClick,
+  onStopClick,
   onRefreshModels,
   isStreaming,
 }: ChatComposerProps) {
@@ -50,6 +50,7 @@ export function ChatComposer({
   const modelOptions = modelFilter
     ? allModelOptions.filter((m) => m.toLowerCase().includes(modelFilter.toLowerCase()))
     : allModelOptions
+  const canSend = draft.trim().length > 0
 
   const openPicker = () => {
     setIsModelPickerOpen(true)
@@ -224,13 +225,16 @@ export function ChatComposer({
           placeholder="Ask anything about your app and API integration..."
           className="min-h-24"
         />
-        <Button className="h-10 shrink-0" type="button" onClick={onPromptClick}>
-          <Sparkles className="size-4" />
-          Prompt
-        </Button>
-        <Button className="h-10 shrink-0" type="button" onClick={onSendClick} disabled={isStreaming}>
-          <SendHorizontal className="size-4" />
-          {isStreaming ? 'Streaming…' : 'Send'}
+        <Button
+          className="h-10 w-10 shrink-0"
+          size="icon"
+          type="button"
+          aria-label={isStreaming ? 'Stop streaming response' : 'Send message'}
+          title={isStreaming ? 'Stop streaming response' : 'Send message'}
+          onClick={isStreaming ? onStopClick : onSendClick}
+          disabled={!isStreaming && !canSend}
+        >
+          {isStreaming ? <Square className="size-4" /> : <SendHorizontal className="size-4" />}
         </Button>
       </div>
     </div>

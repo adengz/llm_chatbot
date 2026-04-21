@@ -1,22 +1,28 @@
-import { Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { listLlmsModelsGet } from '../../client/sdk.gen'
+import {
+  listConversationsConversationsGet,
+  listLlmsModelsGet,
+  listMessagesConversationsConversationIdMessagesGet,
+} from '../../client/sdk.gen'
+import type { Conversation as ApiConversation, Message as ApiMessage } from '../../client/types.gen'
 import { streamMessage } from '../../client/stream'
 import { Badge } from '../ui/badge'
-import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { ChatComposer } from './chat-composer'
 import { ChatMessageList } from './chat-message-list'
 import type { ChatMessage, ModelSource, ReasoningEffort } from './chat-types'
-
-const mockConversations = [
-  { id: 'c1', title: 'MVP scope and API mapping' },
-  { id: 'c2', title: 'Streaming event parser plan' },
-  { id: 'c3', title: 'Follow-up UX polish backlog' },
-]
+import { ConversationSidebar } from './conversation-sidebar'
 
 const STREAMING_MESSAGE_ID = '__streaming__'
+
+function toChatMessage(message: ApiMessage, index: number): ChatMessage {
+  return {
+    id: `${message.created_at ?? 'message'}-${message.role}-${index}`,
+    role: message.role,
+    content: message.content,
+  }
+}
 
 export function ChatModule() {
   const [draft, setDraft] = useState('')
@@ -29,11 +35,16 @@ export function ChatModule() {
   const [isModelOptionsLoading, setIsModelOptionsLoading] = useState(false)
   const [modelOptionsError, setModelOptionsError] = useState<string | null>(null)
   const [modelOptionsRefreshKey, setModelOptionsRefreshKey] = useState(0)
+  const [conversations, setConversations] = useState<ApiConversation[]>([])
+  const [isConversationsLoading, setIsConversationsLoading] = useState(false)
+  const [conversationsError, setConversationsError] = useState<string | null>(null)
+  const [messagesError, setMessagesError] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const skipNextHistoryLoadRef = useRef(false)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -43,6 +54,49 @@ export function ChatModule() {
       el.scrollTop = el.scrollHeight
     }
   }, [messages])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadConversations = async () => {
+      setIsConversationsLoading(true)
+
+      const { data, error } = await listConversationsConversationsGet()
+
+      if (isCancelled) {
+        return
+      }
+
+      if (error || !Array.isArray(data)) {
+        setConversations([])
+        setConversationsError('Failed to load conversations.')
+        setIsConversationsLoading(false)
+        return
+      }
+
+      setConversations(data)
+      setConversationsError(null)
+      setIsConversationsLoading(false)
+    }
+
+    void loadConversations()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  const refreshConversations = async (failureMessage: string) => {
+    const response = await listConversationsConversationsGet()
+
+    if (response.error || !Array.isArray(response.data)) {
+      setConversationsError(failureMessage)
+      return
+    }
+
+    setConversations(response.data)
+    setConversationsError(null)
+  }
 
   useEffect(() => {
     let isCancelled = false
@@ -105,6 +159,65 @@ export function ChatModule() {
   }
 
   useEffect(() => {
+    if (!conversationId) {
+      setMessages([])
+      setMessagesError(null)
+      return
+    }
+
+    if (skipNextHistoryLoadRef.current) {
+      skipNextHistoryLoadRef.current = false
+      return
+    }
+
+    let isCancelled = false
+
+    const loadHistory = async () => {
+      setMessagesError(null)
+
+      let cursor: string | null | undefined = undefined
+      const history: ApiMessage[] = []
+
+      while (true) {
+        const response: { data?: ApiMessage[]; error?: unknown } = await listMessagesConversationsConversationIdMessagesGet({
+          path: { conversation_id: conversationId },
+          query: { cursor, limit: 100 },
+        })
+
+        if (isCancelled) {
+          return
+        }
+
+        if (response.error || !Array.isArray(response.data)) {
+          setMessages([])
+          setMessagesError('Failed to load conversation history.')
+          return
+        }
+
+        if (response.data.length === 0) {
+          break
+        }
+
+        history.push(...response.data)
+        cursor = response.data[response.data.length - 1]?.created_at ?? null
+
+        if (!cursor) {
+          break
+        }
+      }
+
+      const chronological = history.reverse().map(toChatMessage)
+      setMessages(chronological)
+    }
+
+    void loadHistory()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [conversationId])
+
+  useEffect(() => {
     const availableSources = Object.keys(modelOptionsBySource)
 
     if (availableSources.length === 0) {
@@ -125,8 +238,26 @@ export function ChatModule() {
     }
   }, [model, modelOptionsBySource, modelSource])
 
-  const handlePromptClick = () => {
-    // Placeholder: prompt helper behavior will be implemented with backend integration.
+  const handleSelectConversation = (nextConversationId: string) => {
+    if (isStreaming || nextConversationId === conversationId) {
+      return
+    }
+
+    setConversationId(nextConversationId)
+  }
+
+  const handleStartNewConversation = () => {
+    if (isStreaming) {
+      return
+    }
+
+    setConversationId(null)
+    setMessages([])
+    setMessagesError(null)
+  }
+
+  const handleStopStreaming = () => {
+    abortRef.current?.abort()
   }
 
   const handleSendClick = async () => {
@@ -135,6 +266,7 @@ export function ChatModule() {
 
     setDraft('')
     setIsStreaming(true)
+    setMessagesError(null)
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -165,6 +297,10 @@ export function ChatModule() {
         abort.signal,
       )) {
         if (event.type === 'metadata') {
+          if (!conversationId) {
+            skipNextHistoryLoadRef.current = true
+            void refreshConversations('Failed to refresh conversations.')
+          }
           setConversationId(event.conversation_id)
         } else if (event.type === 'content') {
           setMessages((prev) =>
@@ -180,6 +316,15 @@ export function ChatModule() {
                 : m,
             ),
           )
+        } else if (event.type === 'error') {
+          setMessagesError(event.exception)
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === STREAMING_MESSAGE_ID
+                ? { ...m, id: `assistant-${Date.now()}`, content: m.content || `[Error: ${event.exception}]` }
+                : m,
+            ),
+          )
         } else if (event.type === 'done') {
           setMessages((prev) =>
             prev.map((m) =>
@@ -190,6 +335,7 @@ export function ChatModule() {
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
+        setMessagesError((err as Error).message)
         setMessages((prev) =>
           prev.map((m) =>
             m.id === STREAMING_MESSAGE_ID
@@ -215,31 +361,15 @@ export function ChatModule() {
 
   return (
     <div className="grid h-screen grid-cols-[280px_1fr] gap-4 bg-background p-4 text-foreground">
-      <Card className="overflow-hidden">
-        <CardHeader className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle>Conversations</CardTitle>
-            <Button size="icon" variant="outline" aria-label="Start new conversation">
-              <Plus className="size-4" />
-            </Button>
-          </div>
-          <CardDescription>MVP chat continuity surface</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 overflow-y-auto">
-          {mockConversations.map((conversation, idx) => (
-            <button
-              key={conversation.id}
-              className="w-full rounded-lg border border-border/70 p-3 text-left text-sm transition hover:border-primary/50 hover:bg-muted"
-              type="button"
-            >
-              <p className="line-clamp-1 font-medium text-foreground">{conversation.title}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {idx === 0 ? 'Active conversation' : 'Click to load history'}
-              </p>
-            </button>
-          ))}
-        </CardContent>
-      </Card>
+      <ConversationSidebar
+        conversations={conversations}
+        activeConversationId={conversationId}
+        isLoading={isConversationsLoading}
+        error={conversationsError}
+        isStreaming={isStreaming}
+        onSelectConversation={handleSelectConversation}
+        onStartNewConversation={handleStartNewConversation}
+      />
 
       <Card className="grid h-full grid-rows-[auto_1fr_auto] overflow-hidden">
         <CardHeader className="flex-row items-center justify-between">
@@ -254,6 +384,11 @@ export function ChatModule() {
         </CardHeader>
 
         <CardContent className="overflow-y-auto" ref={scrollRef}>
+          {messagesError && (
+            <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {messagesError}
+            </p>
+          )}
           <ChatMessageList messages={messages} />
         </CardContent>
 
@@ -270,8 +405,8 @@ export function ChatModule() {
           onModelSourceChange={setModelSource}
           onModelChange={setModel}
           onReasoningEffortChange={setReasoningEffort}
-          onPromptClick={handlePromptClick}
           onSendClick={() => { void handleSendClick() }}
+          onStopClick={handleStopStreaming}
           onRefreshModels={handleRefreshModels}
         />
       </Card>

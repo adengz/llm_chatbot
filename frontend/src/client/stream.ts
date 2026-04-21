@@ -5,6 +5,7 @@ export type SSEEvent =
   | { type: 'metadata'; conversation_id: string }
   | { type: 'reasoning'; delta: string }
   | { type: 'content'; delta: string }
+  | { type: 'error'; exception: string }
   | { type: 'done' }
 
 export async function* streamMessage(
@@ -56,7 +57,7 @@ export async function* streamMessage(
 
         yield event
 
-        if (event.type === 'done') return
+        if (event.type === 'done' || event.type === 'error') return
       }
     }
   } finally {
