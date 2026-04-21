@@ -189,6 +189,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+frontend/coverage/
 *.local
 
 # Editor directories and files
