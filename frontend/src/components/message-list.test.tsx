@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { ChatMessageList } from './chat-message-list'
+import { MessageList } from './message-list'
 import type { ChatMessage } from './chat-types'
 
 function makeMessage(overrides: Partial<ChatMessage>): ChatMessage {
@@ -13,7 +13,7 @@ function makeMessage(overrides: Partial<ChatMessage>): ChatMessage {
   }
 }
 
-describe('ChatMessageList', () => {
+describe('MessageList', () => {
   it('renders messages in the same order they are provided', () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: '1', role: 'user', content: 'first' }),
@@ -21,7 +21,7 @@ describe('ChatMessageList', () => {
       makeMessage({ id: '3', role: 'user', content: 'third' }),
     ]
 
-    const { container } = render(<ChatMessageList messages={messages} />)
+    const { container } = render(<MessageList messages={messages} />)
 
     const firstNode = screen.getByText('first')
     const secondNode = screen.getByText('second')
@@ -47,7 +47,7 @@ describe('ChatMessageList', () => {
       }),
     ]
 
-    const { container } = render(<ChatMessageList messages={messages} />)
+    const { container } = render(<MessageList messages={messages} />)
 
     expect(screen.getByText('**user text should stay literal**')).toBeInTheDocument()
     expect(screen.getByText('assistant text should be bold').tagName).toBe('STRONG')
@@ -66,7 +66,7 @@ describe('ChatMessageList', () => {
       }),
     ]
 
-    render(<ChatMessageList messages={messages} />)
+    render(<MessageList messages={messages} />)
 
     const items = screen.getAllByRole('listitem')
     expect(items).toHaveLength(2)
@@ -93,7 +93,7 @@ describe('ChatMessageList', () => {
       }),
     ]
 
-    const { container } = render(<ChatMessageList messages={messages} />)
+    const { container } = render(<MessageList messages={messages} />)
 
     const detailsElements = container.querySelectorAll('details')
     expect(detailsElements).toHaveLength(2)
@@ -105,7 +105,7 @@ describe('ChatMessageList', () => {
   })
 
   it('renders an empty list without message bubbles', () => {
-    const { container } = render(<ChatMessageList messages={[]} />)
+    const { container } = render(<MessageList messages={[]} />)
 
     expect(container.querySelectorAll('.flex.gap-3')).toHaveLength(0)
     expect(container.firstElementChild).toHaveClass('space-y-4', 'py-6')

@@ -6,12 +6,12 @@ import {
   listLlmsModelsGet,
   listMessagesConversationsConversationIdMessagesGet,
   renameConversationConversationsConversationIdPatch,
-} from '../../client/sdk.gen'
-import type { Conversation as ApiConversation, Message as ApiMessage } from '../../client/types.gen'
-import { streamMessage } from '../../client/stream'
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
-import { ChatComposer } from './chat-composer'
-import { ChatMessageList } from './chat-message-list'
+} from '../client/sdk.gen'
+import type { Conversation as ApiConversation, Message as ApiMessage } from '../client/types.gen'
+import { streamMessage } from '../client/stream'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { ChatComposer } from './message-composer'
+import { MessageList } from './message-list'
 import type { ChatMessage, ModelSource, ReasoningEffort } from './chat-types'
 import { ConversationSidebar } from './conversation-sidebar'
 
@@ -500,7 +500,7 @@ export function ChatModule() {
               {messagesError}
             </p>
           )}
-          <ChatMessageList messages={messages} />
+          <MessageList messages={messages} />
         </CardContent>
 
         <ChatComposer

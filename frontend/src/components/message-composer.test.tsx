@@ -2,10 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { ChatComposer } from './chat-composer'
+import { MessageComposer } from './message-composer'
 import type { ModelSource, ReasoningEffort } from './chat-types'
 
-type ComposerOverrides = Partial<Parameters<typeof ChatComposer>[0]>
+type ComposerOverrides = Partial<Parameters<typeof MessageComposer>[0]>
 
 function renderComposer(overrides: ComposerOverrides = {}) {
   const onDraftChange = vi.fn()
@@ -38,7 +38,7 @@ function renderComposer(overrides: ComposerOverrides = {}) {
     ...overrides,
   }
 
-  const utils = render(<ChatComposer {...props} />)
+  const utils = render(<MessageComposer {...props} />)
   return {
     ...utils,
     props,
@@ -52,14 +52,14 @@ function renderComposer(overrides: ComposerOverrides = {}) {
   }
 }
 
-describe('ChatComposer', () => {
+describe('MessageComposer', () => {
   it('disables send when draft is empty and enables when draft has text', () => {
     const { rerender, props } = renderComposer({ draft: '' })
 
     const sendButton = screen.getByRole('button', { name: 'Send message' })
     expect(sendButton).toBeDisabled()
 
-    rerender(<ChatComposer {...props} draft={'hello'} />)
+    rerender(<MessageComposer {...props} draft={'hello'} />)
     expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled()
   })
 

@@ -1,11 +1,11 @@
 import { Check, ChevronRight, RefreshCw, SendHorizontal, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { Button } from '../ui/button'
-import { Textarea } from '../ui/textarea'
+import { Button } from './ui/button'
+import { Textarea } from './ui/textarea'
 import type { ModelSource, ReasoningEffort } from './chat-types'
 
-type ChatComposerProps = {
+type MessageComposerProps = {
   draft: string
   modelSource: ModelSource
   model: string
@@ -23,7 +23,7 @@ type ChatComposerProps = {
   isStreaming: boolean
 }
 
-export function ChatComposer({
+export function MessageComposer({
   draft,
   modelSource,
   model,
@@ -39,7 +39,7 @@ export function ChatComposer({
   onStopClick,
   onRefreshModels,
   isStreaming,
-}: ChatComposerProps) {
+}: MessageComposerProps) {
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
   const [pendingSource, setPendingSource] = useState<ModelSource>(modelSource)
   const [modelFilter, setModelFilter] = useState('')

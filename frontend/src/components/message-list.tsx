@@ -4,11 +4,11 @@ import remarkGfm from 'remark-gfm'
 
 import type { ChatMessage } from './chat-types'
 
-type ChatMessageListProps = {
+type MessageListProps = {
   messages: ChatMessage[]
 }
 
-export function ChatMessageList({ messages }: ChatMessageListProps) {
+export function MessageList({ messages }: MessageListProps) {
   return (
     <div className="space-y-4 py-6">
       {messages.map((message) => (

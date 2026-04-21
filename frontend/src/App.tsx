@@ -1,4 +1,4 @@
-import { ChatModule } from './components/chat/chat-module'
+import { ChatModule } from './components/chat-module'
 
 function App() {
   return <ChatModule />

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { Conversation as ApiConversation } from '../../client/types.gen'
+import type { Conversation as ApiConversation } from '../client/types.gen'
 import { ConversationSidebar } from './conversation-sidebar'
 
 type SidebarOverrides = Partial<Parameters<typeof ConversationSidebar>[0]>

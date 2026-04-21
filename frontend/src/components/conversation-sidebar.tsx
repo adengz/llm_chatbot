@@ -1,9 +1,9 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useRef, useState } from 'react'
 
-import type { Conversation as ApiConversation } from '../../client/types.gen'
-import { Button } from '../ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
+import type { Conversation as ApiConversation } from '../client/types.gen'
+import { Button } from './ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 
 type ConversationSidebarProps = {
   conversations: ApiConversation[]
