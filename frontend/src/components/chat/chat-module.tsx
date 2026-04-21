@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
+  deleteConversationConversationsConversationIdDelete,
   listConversationsConversationsGet,
   listLlmsModelsGet,
   listMessagesConversationsConversationIdMessagesGet,
+  renameConversationConversationsConversationIdPatch,
 } from '../../client/sdk.gen'
 import type { Conversation as ApiConversation, Message as ApiMessage } from '../../client/types.gen'
 import { streamMessage } from '../../client/stream'
@@ -260,6 +262,28 @@ export function ChatModule() {
     abortRef.current?.abort()
   }
 
+  const handleRenameConversation = async (conversationId: string, newTitle: string) => {
+    await renameConversationConversationsConversationIdPatch({
+      path: { conversation_id: conversationId },
+      body: { title: newTitle },
+    })
+    setConversations((prev) =>
+      prev.map((c) => (c.conversation_id === conversationId ? { ...c, title: newTitle } : c)),
+    )
+  }
+
+  const handleDeleteConversation = async (targetId: string) => {
+    await deleteConversationConversationsConversationIdDelete({
+      path: { conversation_id: targetId },
+    })
+    setConversations((prev) => prev.filter((c) => c.conversation_id !== targetId))
+    if (conversationId === targetId) {
+      setConversationId(null)
+      setMessages([])
+      setMessagesError(null)
+    }
+  }
+
   const handleSendClick = async () => {
     const content = draft.trim()
     if (!content || isStreaming) return
@@ -360,7 +384,7 @@ export function ChatModule() {
   }
 
   return (
-    <div className="grid h-screen grid-cols-[280px_1fr] gap-4 bg-background p-4 text-foreground">
+    <div className="box-border grid h-dvh grid-cols-[280px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden bg-background p-4 text-foreground">
       <ConversationSidebar
         conversations={conversations}
         activeConversationId={conversationId}
@@ -369,9 +393,11 @@ export function ChatModule() {
         isStreaming={isStreaming}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
+        onRenameConversation={handleRenameConversation}
+        onDeleteConversation={handleDeleteConversation}
       />
 
-      <Card className="grid h-full grid-rows-[auto_1fr_auto] overflow-hidden">
+      <Card className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] overflow-hidden">
         <CardHeader className="flex-row items-center justify-between">
           <div>
             <CardTitle>Chat Module Sketch</CardTitle>
