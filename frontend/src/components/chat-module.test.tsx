@@ -14,8 +14,8 @@ const sdkMocks = vi.hoisted(() => ({
 
 const streamMessageMock = vi.hoisted(() => vi.fn())
 
-vi.mock('../../client/sdk.gen', () => sdkMocks)
-vi.mock('../../client/stream', () => ({
+vi.mock('../client/sdk.gen', () => sdkMocks)
+vi.mock('../client/stream', () => ({
   streamMessage: streamMessageMock,
 }))
 
