@@ -2,7 +2,7 @@ import os
 from collections import deque
 from typing import AsyncIterator
 
-from ollama import AsyncClient, web_search, web_fetch
+from ollama import AsyncClient, web_search, web_fetch, ResponseError
 
 from api.domain.models import Message, AgentStreamChunk
 
@@ -29,29 +29,38 @@ class AsyncOllamaClient:
         tools = [web_search, web_fetch] if web_access else None
         done = False
         tool_calls = deque()
-        while tool_calls or not done:
-            while tool_calls:
-                tool_call = tool_calls.popleft()
-                yield AgentStreamChunk(type='tool_call_request', data=tool_call.function)
-                func = getattr(self.client, tool_call.function.name)
-                response = await func(**tool_call.function.arguments)
-                yield AgentStreamChunk(type='tool_call_response', data=response)
-                context.append({'role': 'tool', 'content': response.model_dump_json(), 'tool_name': tool_call.function.name})
 
-            async for part in await self.client.chat(
-                model=model, 
-                messages=context, 
-                tools=tools, 
-                stream=True, 
-                think=True,
-            ):
-                if part.message.tool_calls is not None:
-                    tool_calls.extend(part.message.tool_calls)
-                elif part.message.thinking is not None:
-                    yield AgentStreamChunk(type='thinking', delta=part.message.thinking)
-                elif part.message.content:
-                    yield AgentStreamChunk(type='content', delta=part.message.content)
-                done = part.done
+        try:
+            while tool_calls or not done:
+                while tool_calls:
+                    tool_call = tool_calls.popleft()
+                    yield AgentStreamChunk(type='tool_call_request', data=tool_call.function)
+                    func = getattr(self.client, tool_call.function.name)
+                    response = await func(**tool_call.function.arguments)
+                    yield AgentStreamChunk(type='tool_call_response', data=response)
+                    new_context = {'role': 'tool', 'tool_name': tool_call.function.name}
+                    new_context['content'] = response.model_dump_json()
+                    context.append(new_context)
 
-        yield AgentStreamChunk(type='done')
+                async for part in await self.client.chat(
+                    model=model, 
+                    messages=context, 
+                    tools=tools, 
+                    stream=True, 
+                    think=True,
+                ):
+                    if part.message.tool_calls is not None:
+                        tool_calls.extend(part.message.tool_calls)
+                    elif part.message.thinking is not None:
+                        yield AgentStreamChunk(type='thinking', delta=part.message.thinking)
+                    elif part.message.content:
+                        yield AgentStreamChunk(type='content', delta=part.message.content)
+                    done = part.done
+
+            yield AgentStreamChunk(type='done')
+
+        except ResponseError as exc:
+            yield AgentStreamChunk(type='error', exception=exc.error, status_code=exc.status_code)
+        except Exception as exc:
+            yield AgentStreamChunk(type='error', exception=str(exc), status_code=500)
     
