@@ -8,9 +8,9 @@ from typing import Protocol
 import pytest
 import pytest_asyncio
 
-from scyllapy import extra_types
+from scyllapy import extra_types, Batch
 
-from api.domain.models import Message, Role
+from api.domain.models import Message
 from api.infra.db import ScyllapyClient
 from api.main import DBClient
 
@@ -32,7 +32,7 @@ class DBHarness(Protocol):
     async def count_messages(self, conversation_id: uuid.UUID) -> int:
         ...
 
-    async def insert_message(self, conversation_id: uuid.UUID, created_at: datetime, role: str, content: str) -> None:
+    async def insert_messages(self, messages: list[Message]) -> None:
         ...
 
     async def fetch_message_record(self, conversation_id: uuid.UUID, created_at: datetime) -> tuple[str, str] | None:
@@ -86,10 +86,15 @@ class ScyllapyHarness:
         row = rows.first()
         return row['count'] if row else 0
 
-    async def insert_message(self, conversation_id: uuid.UUID, created_at: datetime, role: str, content: str) -> None:
-        await self.client.scylla.execute(
-            'INSERT INTO messages (conversation_id, created_at, role, content) VALUES (?, ?, ?, ?)',
-            [conversation_id, created_at, role, content],
+    async def insert_messages(self, messages: list[Message]) -> None:
+        batch = Batch()
+        for _ in range(len(messages)):
+            batch.add_query(
+                'INSERT INTO messages (conversation_id, created_at, role, type, content) VALUES (?, ?, ?, ?, ?)',
+            )
+        await self.client.scylla.batch(
+            batch, 
+            [[m.conversation_id, m.created_at, m.role, m.type, m.content] for m in messages],
         )
 
     async def fetch_message_record(self, conversation_id: uuid.UUID, created_at: datetime) -> tuple[str, str] | None:
@@ -126,7 +131,7 @@ class DBClientContract:
         return db_testkit.harness
 
     @pytest.mark.asyncio
-    async def test_create_conversation(self, db_client, db_harness):
+    async def test_create_conversation(self, db_client: DBClient, db_harness: DBHarness):
         user_id = 0
         title = 'Hello World'
         conversation_id = await db_client.create_conversation(user_id, title)
@@ -136,7 +141,7 @@ class DBClientContract:
         assert stored_title == title
 
     @pytest.mark.asyncio
-    async def test_rename_conversation(self, db_client, db_harness):
+    async def test_rename_conversation(self, db_client: DBClient, db_harness: DBHarness):
         user_id = 0
         conversation_id = await db_harness.insert_conversation(user_id=user_id)
 
@@ -148,19 +153,30 @@ class DBClientContract:
         assert stored_title == new_title
 
     @pytest.mark.asyncio
-    async def test_delete_conversation(self, db_client, db_harness):
+    async def test_delete_conversation(self, db_client: DBClient, db_harness: DBHarness):
         user_id = 0
         conversation_id = await db_harness.insert_conversation(user_id=user_id)
 
         assert await db_harness.count_conversations(user_id, conversation_id) == 1
 
         now = datetime.now(timezone.utc)
-        messages_data = [
-            (now - timedelta(seconds=0), Role.USER.value, 'Anybody?'),
-            (now - timedelta(seconds=5), Role.USER.value, 'Hello?'),
+        messages = [
+            Message(
+                conversation_id=conversation_id, 
+                created_at=now - timedelta(seconds=0), 
+                role='user', 
+                type='content', 
+                content='Anyboody?',
+            ),
+            Message(
+                conversation_id=conversation_id, 
+                created_at=now - timedelta(seconds=5), 
+                role='user', 
+                type='content', 
+                content='Hello?',
+            ),
         ]
-        for created_at, role, content in messages_data:
-            await db_harness.insert_message(conversation_id, created_at, role, content)
+        await db_harness.insert_messages(messages)
         
         assert await db_harness.count_messages(conversation_id) == 2
 
@@ -170,7 +186,7 @@ class DBClientContract:
         assert await db_harness.count_messages(conversation_id) == 0
 
     @pytest.mark.asyncio
-    async def test_list_conversations(self, db_client, db_harness):
+    async def test_list_conversations(self, db_client: DBClient, db_harness: DBHarness):
         user_id = 0
         titles = ['a', 'b', 'c']
         for title in titles:
@@ -183,9 +199,9 @@ class DBClientContract:
         assert [r.title for r in res] == titles[::-1]
 
     @pytest.mark.asyncio
-    async def test_create_message(self, db_client, db_harness):
+    async def test_create_message(self, db_client: DBClient, db_harness: DBHarness):
         conversation_id = uuid.uuid1()
-        role = Role.USER
+        role = 'user'
         content = 'Hello World'
         message = Message(conversation_id=conversation_id, role=role, content=content)
         created_at = message.created_at
@@ -193,38 +209,68 @@ class DBClientContract:
         await db_client.create_message(message)
         stored_message = await db_harness.fetch_message_record(conversation_id, created_at)
 
-        assert stored_message == (role.value, content)
+        assert stored_message == (role, content)
 
     @pytest.mark.asyncio
-    async def test_list_messages(self, db_client, db_harness):
+    async def test_list_messages(self, db_client: DBClient, db_harness: DBHarness):
         conversation_id = uuid.uuid1()
         now = datetime.now(timezone.utc)
-        messages_data = [
-            (now - timedelta(minutes=1), Role.ASSISTANT.value, '4'),
-            (now - timedelta(minutes=2), Role.USER.value, '2+2=?'),
-            (now - timedelta(minutes=3), Role.ASSISTANT.value, '2'),
-            (now - timedelta(minutes=4), Role.USER.value, '1+1=?'),
+        messages = [
+            Message(
+                conversation_id=conversation_id,
+                created_at=now - timedelta(seconds=1),
+                role='assistant',
+                type='content',
+                content='2',
+            ),
+            Message(
+                conversation_id=conversation_id,
+                created_at=now - timedelta(seconds=2),
+                role='assistant',
+                type='tool_call_response',
+                content='2',
+            ),
+            Message(
+                conversation_id=conversation_id,
+                created_at=now - timedelta(seconds=3),
+                role='assistant',
+                type='tool_call_request',
+                content='1+1',
+            ),
+            Message(
+                conversation_id=conversation_id,
+                created_at=now - timedelta(seconds=4),
+                role='assistant',
+                type='thinking',
+                content='Use calculator to calculate 1+1',
+            ),
+            Message(
+                conversation_id=conversation_id,
+                created_at=now - timedelta(seconds=5),
+                role='user',
+                type='content',
+                content='1+1=?',
+            ),
         ]
+        
+        await db_harness.insert_messages(messages)
+        
+        assistant_messages = await db_client.list_messages(conversation_id, now, limit=4)
 
-        for created_at, role, content in messages_data:
-            await db_harness.insert_message(conversation_id, created_at, role, content)
-        
-        limit = 2
-        messages1 = await db_client.list_messages(conversation_id, now, limit=limit)
+        assert len(assistant_messages) == 4
+        assert [m.content for m in assistant_messages] == ['2', '2', '1+1', 'Use calculator to calculate 1+1']
+        assert all([m.role == 'assistant' for m in assistant_messages])
 
-        assert len(messages1) == 2
-        assert [m.content for m in messages1] == ['4', '2+2=?']
-        assert [m.role for m in messages1] == [Role.ASSISTANT, Role.USER]
-        
-        messages2 = await db_client.list_messages(conversation_id, messages1[-1].created_at, limit=limit)
+        user_messages = await db_client.list_messages(conversation_id, assistant_messages[-1].created_at, limit=4)
+        assert len(user_messages) == 1
+        assert user_messages[0].content == '1+1=?'
+        assert user_messages[0].role == 'user'
 
-        assert len(messages2) == 2
-        assert [m.content for m in messages2] == ['2', '1+1=?']
-        assert [m.role for m in messages2] == [Role.ASSISTANT, Role.USER]
-        
-        messages3 = await db_client.list_messages(conversation_id, messages2[-1].created_at, limit=limit)
-        
-        assert len(messages3) == 0
+        content_messages = await db_client.list_messages(conversation_id, now, limit=4, content_only=True)
+        assert len(content_messages) == 2
+        assert all([m.type == 'content' for m in content_messages])
+        assert [m.content for m in content_messages] == ['2', '1+1=?']
+        assert [m.role for m in content_messages] == ['assistant', 'user']
 
 
 class TestScyllapyClient(DBClientContract):

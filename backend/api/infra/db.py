@@ -5,7 +5,7 @@ from typing import Self, Any
 from pydantic import UUID1
 from scyllapy import Scylla, PreparedQuery, QueryResult, extra_types
 
-from api.domain.models import Conversation, Message, Role
+from api.domain.models import Conversation, Message
 
 
 class ScyllapyClient:
@@ -74,20 +74,29 @@ class ScyllapyClient:
 
     async def create_message(self, message: Message) -> None:
         await self._execute_prepared(
-            'INSERT INTO messages (conversation_id, created_at, role, content) VALUES (?, ?, ?, ?)',
-            [message.conversation_id, message.created_at, message.role.value, message.content],
+            'INSERT INTO messages (conversation_id, created_at, role, type, content) VALUES (?, ?, ?, ?, ?)',
+            [message.conversation_id, message.created_at, message.role, message.type, message.content],
         )
 
-    async def list_messages(self, conversation_id: UUID1, cursor: datetime.datetime, limit: int = 2) -> list[Message]:
+    async def list_messages(self, conversation_id: UUID1, cursor: datetime.datetime, limit: int = 2, 
+                            content_only: bool = False) -> list[Message]:
+        wheres = ['conversation_id = ?', 'created_at < ?']
+        parameters = [conversation_id, cursor]
+        if content_only:
+            wheres.append('type = ?')
+            parameters.append('content')
+        parameters.append(limit)
+
         result = await self._execute_prepared(
-            'SELECT created_at, role, content FROM messages WHERE conversation_id = ? AND created_at < ? LIMIT ?',
-            [conversation_id, cursor, limit],
+            f'SELECT created_at, role, type, content FROM messages WHERE {" AND ".join(wheres)} LIMIT ?',
+            parameters,
         )
         return [
             Message(
                 conversation_id=conversation_id,
                 created_at=row['created_at'],
-                role=Role(row['role']),
+                role=row['role'],
+                type=row['type'],
                 content=row['content'],
             )
             for row in result.all()
