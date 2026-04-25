@@ -14,7 +14,7 @@ class Message(BaseModel):
     conversation_id: UUID1 | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     role: Literal['user', 'assistant']
-    type: Literal['tool_call_request', 'tool_call_response', 'thinking', 'content'] = 'content'
+    type: Literal['tool_call_req', 'tool_call_resp', 'thinking', 'content'] = 'content'
     content: str
 
 
@@ -26,7 +26,10 @@ class MessageRequest(BaseModel):
 
 
 class AgentStreamChunk(BaseModel):
-    type: Literal['tool_call_request', 'tool_call_response', 'thinking', 'content', 'done']
+    type: Literal['metadata', 'tool_call_req', 'tool_call_resp', 'thinking', 'content', 'done', 'error', 'warning']
+    conversation_id: UUID1 | None = None
     delta: str | None = None
     data: BaseModel | None = None
+    exception: str | None = None
+    status_code: int = 200
     

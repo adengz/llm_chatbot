@@ -62,7 +62,7 @@ class TestAsyncOllamaClient:
 		
 		answer, tool_calls = [], []
 		for chunk in chunks:
-			if chunk.type == 'tool_call_request':
+			if chunk.type == 'tool_call_req':
 				tool_calls.append(chunk.data)
 			elif chunk.type == 'content':
 				answer.append(chunk.delta)

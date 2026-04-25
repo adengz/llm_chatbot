@@ -5,6 +5,7 @@ from typing import Self, Any
 from pydantic import UUID1
 from scyllapy import Scylla, PreparedQuery, QueryResult, extra_types
 
+from api.infra.exceptions import DatabaseException
 from api.domain.models import Conversation, Message
 
 
@@ -31,8 +32,11 @@ class ScyllapyClient:
         return prepared
 
     async def _execute_prepared(self, query: str, parameters: list[Any]) -> QueryResult:
-        prepared = await self._prepare(query)
-        return await self.scylla.execute(prepared, parameters)
+        try:
+            prepared = await self._prepare(query)
+            return await self.scylla.execute(prepared, parameters)
+        except Exception as exc:
+            raise DatabaseException('Database operation failed') from exc
 
     async def create_conversation(self, user_id: int, title: str) -> UUID1:
         conversation_id = uuid.uuid1()

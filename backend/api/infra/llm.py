@@ -1,6 +1,6 @@
 import os
 from collections import deque
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 from ollama import AsyncClient, web_search, web_fetch, ResponseError
 
@@ -24,7 +24,7 @@ class AsyncOllamaClient:
         return sorted([m['model'] for m in response['models']])
     
     async def stream_response(self, model: str, messages: list[Message], web_access: bool = False) \
-        -> AsyncIterator[AgentStreamChunk]:
+        -> AsyncGenerator[AgentStreamChunk, None]:
         context = [m.model_dump(include=['role', 'content']) for m in reversed(messages)]
         tools = [web_search, web_fetch] if web_access else None
         done = False
@@ -34,10 +34,10 @@ class AsyncOllamaClient:
             while tool_calls or not done:
                 while tool_calls:
                     tool_call = tool_calls.popleft()
-                    yield AgentStreamChunk(type='tool_call_request', data=tool_call.function)
+                    yield AgentStreamChunk(type='tool_call_req', data=tool_call.function)
                     func = getattr(self.client, tool_call.function.name)
                     response = await func(**tool_call.function.arguments)
-                    yield AgentStreamChunk(type='tool_call_response', data=response)
+                    yield AgentStreamChunk(type='tool_call_resp', data=response)
                     new_context = {'role': 'tool', 'tool_name': tool_call.function.name}
                     new_context['content'] = response.model_dump_json()
                     context.append(new_context)

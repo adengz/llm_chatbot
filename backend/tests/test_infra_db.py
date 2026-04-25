@@ -227,14 +227,14 @@ class DBClientContract:
                 conversation_id=conversation_id,
                 created_at=now - timedelta(seconds=2),
                 role='assistant',
-                type='tool_call_response',
+                type='tool_call_resp',
                 content='2',
             ),
             Message(
                 conversation_id=conversation_id,
                 created_at=now - timedelta(seconds=3),
                 role='assistant',
-                type='tool_call_request',
+                type='tool_call_req',
                 content='1+1',
             ),
             Message(
