@@ -1,6 +1,6 @@
 import uuid
 import json
-from typing import Literal, AsyncGenerator
+from typing import Any, Literal, AsyncGenerator
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -17,7 +17,7 @@ def tokenize(text: str) -> list[str]:
     return [w if i == 0 else ' ' + w for i, w in enumerate(text.split())]
 
 
-MockWebSearchRequest = create_model('MockWebSearchRequest', query=str, max_results=(int, 3))
+MockToolCallRequest = create_model('MockToolCallRequest', name=str, arguments=dict[str, Any])
 MockWebSearchResult = create_model('MockWebSearchResult', content=str, title=str)
 MockWebSearchResponse = create_model('MockWebSearchResponse', results=(list[MockWebSearchResult], ...))
 
@@ -145,15 +145,18 @@ class TestAppEndpoints:
         ]
         mock_db.list_messages.side_effect = [existing_msgs, []]
 
-        mock_web_search_req = MockWebSearchRequest(query='Current price of Bitcoin in USD?', max_results=1)
+        mock_tool_call_req = MockToolCallRequest(
+            name='web_search', 
+            arguments={'query': 'Current price of Bitcoin in USD?', 'max_results': 1},
+        )
         mock_web_search_resp = MockWebSearchResponse(results=[MockWebSearchResult(
 			content='$50,000 USD',
-			title='Bitcoin Price'
+			title='Bitcoin Price',
 		)])
         
         llm_responses = [
             ('thinking', 'Need current price. browse.'),
-            ('tool_call_req', mock_web_search_req),
+            ('tool_call_req', mock_tool_call_req),
             ('tool_call_resp', mock_web_search_resp),
             ('thinking', 'Got the price. Need to format response.'),
             ('content', 'The current price of Bitcoin is $50,000 USD.'),
@@ -170,6 +173,14 @@ class TestAppEndpoints:
         
         assert len(events) == 1 + len(streamer.chunks) + 1
         assert events[-1]['type'] == 'done'
+        for event in events[1:-1]:
+            match event['type']:
+                case 'tool_call_req':
+                    assert event['data'] == mock_tool_call_req.model_dump()
+                case 'tool_call_resp':
+                    assert event['data'] == mock_web_search_resp.model_dump()
+                case _:
+                    pass
         
         assert mock_llm.stream_response.call_count == 1
         _, kwargs = mock_llm.stream_response.call_args
