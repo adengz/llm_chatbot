@@ -220,7 +220,7 @@ export function MessageList({ messages }: MessageListProps) {
                     <span className="opacity-70">Thinking</span>
                   </summary>
                   {message.content && (
-                    <div className="mt-1 border-l-2 border-border/40 pl-3 text-xs italic opacity-80 overflow-hidden prose prose-sm dark:prose-invert max-w-none prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">
+                    <div className="mt-1 border-l-2 border-border/40 pl-3 text-xs italic opacity-80 overflow-hidden prose prose-sm max-w-none prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                     </div>
                   )}
@@ -238,7 +238,7 @@ export function MessageList({ messages }: MessageListProps) {
               {!isTool && !isThinking && (
                 <>
                   {isAssistant ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 overflow-hidden prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">
+                    <div className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 overflow-hidden prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                     </div>
                   ) : (
