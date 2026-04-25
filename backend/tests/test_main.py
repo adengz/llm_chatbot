@@ -3,7 +3,7 @@ import json
 from typing import Literal, AsyncGenerator
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import create_model, BaseModel
 from fastapi.testclient import TestClient
@@ -58,7 +58,8 @@ def parse_sse_events(body: str) -> list[dict]:
 @pytest.fixture
 def api_ut_toolkit():
     mock_db = AsyncMock(DBClient)
-    mock_llm = AsyncMock(LLMClient)
+    mock_llm = MagicMock(spec=LLMClient)
+    mock_llm.stream_response = MagicMock()  # Initialize as MagicMock for call tracking
     mock_disconnect = AsyncMock(return_value=False)
 
     app.dependency_overrides[get_db] = lambda: mock_db
@@ -108,8 +109,8 @@ class TestAppEndpoints:
         assert events[0]['conversation_id'] == str(conv_id)
         assert events[-1]['type'] == 'done'
         
-        assert mock_llm.stream_response.await_count == 1
-        _, kwargs = mock_llm.stream_response.await_args
+        assert mock_llm.stream_response.call_count == 1
+        _, kwargs = mock_llm.stream_response.call_args
         assert kwargs['model'] == payload['model']
         assert kwargs['web_access'] == payload['web_access']
         context = kwargs['context']
@@ -170,8 +171,8 @@ class TestAppEndpoints:
         assert len(events) == 1 + len(streamer.chunks) + 1
         assert events[-1]['type'] == 'done'
         
-        assert mock_llm.stream_response.await_count == 1
-        _, kwargs = mock_llm.stream_response.await_args
+        assert mock_llm.stream_response.call_count == 1
+        _, kwargs = mock_llm.stream_response.call_args
         assert kwargs['model'] == payload['model']
         assert kwargs['web_access'] == payload['web_access']
         context = kwargs['context']

@@ -1,7 +1,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { streamMessage } from '../client/stream'
-import type { ChatMessage, ModelSource, ReasoningEffort } from '../components/chat-types'
+import type { ChatMessage, ModelSource } from '../components/chat-types'
 
 const STREAMING_MESSAGE_ID = '__streaming__'
 
@@ -10,7 +10,7 @@ type SendMessageArgs = {
   conversationId: string | null
   modelSource: ModelSource
   model: string
-  reasoningEffort: ReasoningEffort
+  webAccess: boolean
 }
 
 type UseChatStreamingParams = {
@@ -40,8 +40,8 @@ export function useChatStreaming({
   const finalizeStreamingMessage = (fallbackContent?: string) => {
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === STREAMING_MESSAGE_ID
-          ? { ...m, id: `assistant-${Date.now()}`, content: m.content || fallbackContent || '' }
+        m.id.startsWith(STREAMING_MESSAGE_ID)
+          ? { ...m, id: `${m.type}-${Date.now()}-${Math.random()}`, content: m.content || fallbackContent || '' }
           : m,
       ),
     )
@@ -52,7 +52,7 @@ export function useChatStreaming({
     conversationId,
     modelSource,
     model,
-    reasoningEffort,
+    webAccess,
   }: SendMessageArgs): boolean => {
     const trimmed = content.trim()
     if (!trimmed || isStreaming) {
@@ -70,45 +70,87 @@ export function useChatStreaming({
       content: trimmed,
     }
 
-    const streamingMessage: ChatMessage = {
-      id: STREAMING_MESSAGE_ID,
-      role: 'assistant',
-      content: '',
-    }
-
-    setMessages((prev) => [...prev, userMessage, streamingMessage])
+    setMessages((prev) => [...prev, userMessage])
 
     const abort = new AbortController()
     abortRef.current = abort
 
     void (async () => {
       try {
+        let currentStreamingId: string | null = null
+        let currentSegmentType: string | null = null
+
         for await (const event of streamMessage(
           {
             conversation_id: conversationId ?? undefined,
             content: trimmed,
-            model_source: modelSource,
             model,
-            reasoning_effort: reasoningEffort,
+            web_access: webAccess,
           },
           abort.signal,
         )) {
           if (event.type === 'metadata') {
             onMetadata(event.conversation_id, startedFromNewConversation)
-          } else if (event.type === 'content') {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === STREAMING_MESSAGE_ID ? { ...m, content: m.content + event.delta } : m,
-              ),
-            )
-          } else if (event.type === 'reasoning') {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === STREAMING_MESSAGE_ID
-                  ? { ...m, reasoning: (m.reasoning ?? '') + event.delta }
-                  : m,
-              ),
-            )
+          } else if (
+            event.type === 'thinking' ||
+            event.type === 'tool_call_req' ||
+            event.type === 'tool_call_resp' ||
+            event.type === 'content'
+          ) {
+            if (currentSegmentType !== event.type) {
+              // Finalize previous segment by changing ID from __streaming__ prefix
+              if (currentStreamingId) {
+                const finishedId = currentStreamingId
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === finishedId
+                      ? { ...m, id: `${m.type}-${Date.now()}-${Math.random()}` }
+                      : m,
+                  ),
+                )
+              }
+
+              currentSegmentType = event.type
+              currentStreamingId = `${STREAMING_MESSAGE_ID}-${event.type}-${Date.now()}`
+              const newSegment: ChatMessage = {
+                id: currentStreamingId,
+                role: 'assistant',
+                type: event.type,
+                content: '',
+              }
+              setMessages((prev) => [...prev, newSegment])
+            }
+
+            if (currentStreamingId) {
+              let delta = ''
+              if (event.type === 'tool_call_req' || event.type === 'tool_call_resp') {
+                // @ts-ignore - data is present in tool call events from backend
+                if (event.data) {
+                  delta = typeof event.data === 'string' ? event.data : JSON.stringify(event.data)
+                } else if (event.delta) {
+                  delta = event.delta
+                }
+              } else {
+                delta = event.delta || ''
+              }
+
+              if (delta) {
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id === currentStreamingId) {
+                      // For tool calls, if we get a full object, we might want to replace rather than append
+                      // because the backend logic for tool calls often emits the full state in one chunk.
+                      const isTool = event.type === 'tool_call_req' || event.type === 'tool_call_resp'
+                      return { 
+                        ...m, 
+                        content: isTool ? delta : (m.content + delta) 
+                      }
+                    }
+                    return m
+                  }),
+                )
+              }
+            }
           } else if (event.type === 'error') {
             setMessagesError(event.exception)
             finalizeStreamingMessage(`[Error: ${event.exception}]`)

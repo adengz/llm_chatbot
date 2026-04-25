@@ -1,13 +1,13 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Protocol, Callable, Awaitable, Literal, AsyncGenerator
 
-from pydantic import UUID1, create_model
+from pydantic import UUID1
 from fastapi import FastAPI, Request, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.domain.models import AgentStreamChunk, MessageRequest, Message, Conversation
-from api.infra import lifespan
 from api.infra.exceptions import DatabaseException
 
 
@@ -16,7 +16,7 @@ class LLMClient(Protocol):
     async def list_models(self) -> list[str]:
         ...
 
-    async def stream_response(self, model: str, messages: list[Message], web_access: bool = False) \
+    async def stream_response(self, context: list[Message], model: str, web_access: bool = False) \
         -> AsyncGenerator[AgentStreamChunk, None]:
         ...
 
@@ -45,6 +45,17 @@ class DBClient(Protocol):
 
 def get_user_id() -> int:
     return 0
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from api.infra.db import ScyllapyClient
+    db_client = await ScyllapyClient.create(['localhost:9042'], 'chatbot')
+    app.state.db_client = db_client
+    from api.infra.llm import AsyncOllamaClient
+    app.state.llm_client = AsyncOllamaClient(use_cloud=True)
+    yield
+    await db_client.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -105,7 +116,7 @@ async def generate_stream(conversation_id: UUID1, context: list[Message], model:
 
     buffer, stream_type = [], None
 
-    async for chunk in await llm.stream_response(context=context, model=model, web_access=web_access):
+    async for chunk in llm.stream_response(context=context, model=model, web_access=web_access):
         data = None
         match chunk.type:
             case 'thinking' | 'content':

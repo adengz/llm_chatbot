@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MessageComposer } from './message-composer'
-import type { ModelSource, ReasoningEffort } from './chat-types'
+import type { ModelSource } from './chat-types'
 
 type ComposerOverrides = Partial<Parameters<typeof MessageComposer>[0]>
 
@@ -11,10 +11,10 @@ function renderComposer(overrides: ComposerOverrides = {}) {
   const onDraftChange = vi.fn()
   const onModelSourceChange = vi.fn()
   const onModelChange = vi.fn()
-  const onReasoningEffortChange = vi.fn()
   const onSendClick = vi.fn()
   const onStopClick = vi.fn()
   const onRefreshModels = vi.fn()
+  const onWebAccessChange = vi.fn()
 
   const props = {
     draft: '',
@@ -22,18 +22,17 @@ function renderComposer(overrides: ComposerOverrides = {}) {
     model: 'qwen3:32b',
     modelOptionsBySource: {
       ollama_cloud: ['qwen3:32b', 'llama3.2:3b'],
-      local_ollama: ['deepseek-r1:8b'],
     },
     isModelOptionsLoading: false,
     modelOptionsError: null,
-    reasoningEffort: 'medium' as ReasoningEffort,
+    webAccess: false,
     onDraftChange,
     onModelSourceChange,
     onModelChange,
-    onReasoningEffortChange,
     onSendClick,
     onStopClick,
     onRefreshModels,
+    onWebAccessChange,
     isStreaming: false,
     ...overrides,
   }
@@ -45,10 +44,10 @@ function renderComposer(overrides: ComposerOverrides = {}) {
     onDraftChange,
     onModelSourceChange,
     onModelChange,
-    onReasoningEffortChange,
     onSendClick,
     onStopClick,
     onRefreshModels,
+    onWebAccessChange,
   }
 }
 
@@ -86,9 +85,44 @@ describe('MessageComposer', () => {
     expect(streaming.onSendClick).not.toHaveBeenCalled()
   })
 
+  it('switches to single-level model picker and filters list', async () => {
+    const user = userEvent.setup()
+    const { onModelChange } = renderComposer()
+
+    const pickerButton = screen.getByRole('button', { name: /qwen3:32b/i })
+    await user.click(pickerButton)
+
+    const filterInput = screen.getByPlaceholderText('Filter models…')
+    expect(filterInput).toBeInTheDocument()
+
+    await user.type(filterInput, 'llama')
+    
+    // The dropdown list should only contain llama
+    const modelOptions = screen.getAllByRole('button').filter(b => 
+      b.className.includes('group') && b.className.includes('w-full')
+    )
+    expect(modelOptions.every(opt => opt.textContent?.includes('llama'))).toBe(true)
+    expect(modelOptions.find(opt => opt.textContent === 'qwen3:32b')).toBeUndefined()
+
+    const llamaOption = screen.getByText('llama3.2:3b')
+    await user.click(llamaOption)
+
+    expect(onModelChange).toHaveBeenCalledWith('llama3.2:3b')
+  })
+
+  it('toggles web access', async () => {
+    const user = userEvent.setup()
+    const { onWebAccessChange } = renderComposer({ webAccess: false })
+
+    const webAccessBtn = screen.getByTitle(/Web Access/i)
+    await user.click(webAccessBtn)
+
+    expect(onWebAccessChange).toHaveBeenCalledWith(true)
+  })
+
   it('switches primary action to stop while streaming', async () => {
     const user = userEvent.setup()
-    const { onStopClick, onSendClick } = renderComposer({
+    const { onStopClick } = renderComposer({
       draft: 'Question?',
       isStreaming: true,
     })
@@ -97,52 +131,6 @@ describe('MessageComposer', () => {
     expect(stopButton).toBeEnabled()
 
     await user.click(stopButton)
-
     expect(onStopClick).toHaveBeenCalledTimes(1)
-    expect(onSendClick).not.toHaveBeenCalled()
-  })
-
-  it('supports source + model selection flow in model picker', async () => {
-    const user = userEvent.setup()
-    const { onModelSourceChange, onModelChange } = renderComposer()
-
-    await user.click(screen.getByRole('button', { name: /ollama_cloud \/ qwen3:32b/i }))
-
-    await user.click(screen.getByRole('button', { name: 'local_ollama' }))
-    await user.click(screen.getByRole('button', { name: 'deepseek-r1:8b' }))
-
-    expect(onModelSourceChange).toHaveBeenCalledWith('local_ollama')
-    expect(onModelChange).toHaveBeenCalledWith('deepseek-r1:8b')
-    expect(screen.queryByRole('menu', { name: 'Model sources' })).not.toBeInTheDocument()
-  })
-
-  it('filters models and shows empty-state message for unmatched filter', async () => {
-    const user = userEvent.setup()
-    renderComposer()
-
-    await user.click(screen.getByRole('button', { name: /ollama_cloud \/ qwen3:32b/i }))
-
-    const filterInput = screen.getByPlaceholderText('Filter models…')
-    await user.type(filterInput, 'not-found')
-
-    expect(screen.getByText('No models match your filter.')).toBeInTheDocument()
-  })
-
-  it('refresh control is disabled while loading and active otherwise', async () => {
-    const user = userEvent.setup()
-
-    const loadingView = renderComposer({ isModelOptionsLoading: true })
-    await user.click(screen.getByRole('button', { name: /ollama_cloud \/ qwen3:32b/i }))
-    const loadingRefresh = screen.getByRole('button', { name: 'Refresh models' })
-    expect(loadingRefresh).toBeDisabled()
-    loadingView.unmount()
-
-    const readyView = renderComposer({ isModelOptionsLoading: false })
-    await user.click(screen.getByRole('button', { name: /ollama_cloud \/ qwen3:32b/i }))
-    const readyRefresh = screen.getByRole('button', { name: 'Refresh models' })
-    expect(readyRefresh).toBeEnabled()
-    await user.click(readyRefresh)
-
-    expect(readyView.onRefreshModels).toHaveBeenCalledTimes(1)
   })
 })

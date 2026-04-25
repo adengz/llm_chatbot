@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 
-import type { ReasoningEffort } from './chat-types'
 import { ConversationSidebar } from './conversation-sidebar'
 import { MessageComposer } from './message-composer'
 import { MessageList } from './message-list'
@@ -13,7 +12,7 @@ import { useModelCatalog } from '../hooks/use-model-catalog'
 
 export function ChatModule() {
   const [draft, setDraft] = useState('')
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium')
+  const [webAccess, setWebAccess] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const {
@@ -78,7 +77,7 @@ export function ChatModule() {
 
   useEffect(() => {
     syncAfterMessagesChange()
-  }, [messages.length, syncAfterMessagesChange])
+  }, [messages, syncAfterMessagesChange])
 
   const handleSelectConversation = (nextConversationId: string) => {
     if (isStreaming || nextConversationId === activeConversationId) {
@@ -118,7 +117,7 @@ export function ChatModule() {
       conversationId: activeConversationId,
       modelSource,
       model,
-      reasoningEffort,
+      webAccess,
     })
 
     if (started) {
@@ -166,12 +165,12 @@ export function ChatModule() {
           modelOptionsBySource={modelOptionsBySource}
           isModelOptionsLoading={isModelOptionsLoading}
           modelOptionsError={modelOptionsError}
-          reasoningEffort={reasoningEffort}
+          webAccess={webAccess}
           isStreaming={isStreaming}
           onDraftChange={setDraft}
           onModelSourceChange={setModelSource}
           onModelChange={setModel}
-          onReasoningEffortChange={setReasoningEffort}
+          onWebAccessChange={setWebAccess}
           onSendClick={handleSendClick}
           onStopClick={stopStreaming}
           onRefreshModels={refreshModels}

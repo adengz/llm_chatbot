@@ -23,9 +23,9 @@ class AsyncOllamaClient:
         response = await self.client.list()
         return sorted([m['model'] for m in response['models']])
     
-    async def stream_response(self, model: str, messages: list[Message], web_access: bool = False) \
+    async def stream_response(self, context: list[Message], model: str, web_access: bool = False) \
         -> AsyncGenerator[AgentStreamChunk, None]:
-        context = [m.model_dump(include=['role', 'content']) for m in reversed(messages)]
+        messages = [m.model_dump(include=['role', 'content']) for m in reversed(context)]
         tools = [web_search, web_fetch] if web_access else None
         done = False
         tool_calls = deque()
@@ -38,13 +38,13 @@ class AsyncOllamaClient:
                     func = getattr(self.client, tool_call.function.name)
                     response = await func(**tool_call.function.arguments)
                     yield AgentStreamChunk(type='tool_call_resp', data=response)
-                    new_context = {'role': 'tool', 'tool_name': tool_call.function.name}
-                    new_context['content'] = response.model_dump_json()
-                    context.append(new_context)
+                    new_message = {'role': 'tool', 'tool_name': tool_call.function.name}
+                    new_message['content'] = response.model_dump_json()
+                    messages.append(new_message)
 
                 async for part in await self.client.chat(
                     model=model, 
-                    messages=context, 
+                    messages=messages, 
                     tools=tools, 
                     stream=True, 
                     think=True,

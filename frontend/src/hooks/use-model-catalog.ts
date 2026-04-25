@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { listLlmsModelsGet } from '../client/sdk.gen'
+import { listModelsModelsGet } from '../client/sdk.gen'
 import type { ModelSource } from '../components/chat-types'
 
 type UseModelCatalogResult = {
@@ -31,37 +31,49 @@ export function useModelCatalog(
     const loadModels = async () => {
       setIsModelOptionsLoading(true)
 
-      const { data, error } = await listLlmsModelsGet()
+      const { data, error } = await listModelsModelsGet()
 
       if (isCancelled) {
         return
       }
 
-      if (error || !data || typeof data !== 'object') {
+      if (error || !data) {
         setModelOptionsBySource({})
         setModelOptionsError('Failed to load models from backend. Model list is unavailable.')
         setIsModelOptionsLoading(false)
         return
       }
 
-      const normalizedModelOptions = Object.entries(data).reduce<Record<string, string[]>>(
-        (acc, [source, models]) => {
-          if (!Array.isArray(models)) {
-            return acc
-          }
+      let normalizedModelOptions: Record<string, string[]> = {}
 
-          const validModels = models.filter(
+      if (Array.isArray(data)) {
+        // Handle list format: map to a default 'ollama_cloud' source
+        normalizedModelOptions = {
+          ollama_cloud: data.filter(
             (value): value is string => typeof value === 'string' && value.trim().length > 0,
-          )
+          ),
+        }
+      } else if (typeof data === 'object') {
+        // Handle dictionary format: { source: [models] }
+        normalizedModelOptions = Object.entries(data).reduce<Record<string, string[]>>(
+          (acc, [source, models]) => {
+            if (!Array.isArray(models)) {
+              return acc
+            }
 
-          if (validModels.length > 0) {
-            acc[source] = Array.from(new Set(validModels))
-          }
+            const validModels = models.filter(
+              (value): value is string => typeof value === 'string' && value.trim().length > 0,
+            )
 
-          return acc
-        },
-        {},
-      )
+            if (validModels.length > 0) {
+              acc[source] = Array.from(new Set(validModels))
+            }
+
+            return acc
+          },
+          {},
+        )
+      }
 
       if (Object.keys(normalizedModelOptions).length > 0) {
         setModelOptionsBySource(normalizedModelOptions)

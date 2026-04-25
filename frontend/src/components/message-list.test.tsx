@@ -77,19 +77,19 @@ describe('MessageList', () => {
     expect(link).toHaveAttribute('href', 'https://example.com')
   })
 
-  it('shows reasoning details and auto-opens for streaming assistant message', () => {
+  it('shows thinking details and auto-opens for streaming assistant message', () => {
     const messages: ChatMessage[] = [
       makeMessage({
-        id: '__streaming__',
+        id: '__streaming__-thinking-1',
         role: 'assistant',
-        content: 'partial answer',
-        reasoning: 'thinking...',
+        type: 'thinking',
+        content: 'thinking details...',
       }),
       makeMessage({
-        id: 'a-closed',
+        id: 'thinking-done',
         role: 'assistant',
-        content: 'complete answer',
-        reasoning: 'done thinking',
+        type: 'thinking',
+        content: 'complete reasoning',
       }),
     ]
 
@@ -97,11 +97,31 @@ describe('MessageList', () => {
 
     const detailsElements = container.querySelectorAll('details')
     expect(detailsElements).toHaveLength(2)
+    // First should be open because it starts with __streaming__
     expect(detailsElements[0]).toHaveAttribute('open')
+    // Second should be closed because it's finalized
     expect(detailsElements[1]).not.toHaveAttribute('open')
+    
+    expect(screen.getAllByText('Thinking')).toHaveLength(2)
+    expect(screen.getByText('thinking details...')).toBeInTheDocument()
+  })
 
-    expect(screen.getByText('thinking...')).toBeInTheDocument()
-    expect(screen.getByText('done thinking')).toBeInTheDocument()
+  it('renders tool call requests and responses', () => {
+    const toolCall = JSON.stringify({ name: 'get_weather', args: { city: 'London' } })
+    const messages: ChatMessage[] = [
+      makeMessage({
+        id: 'tool-1',
+        role: 'assistant',
+        type: 'tool_call_req',
+        content: toolCall,
+      }),
+    ]
+
+    render(<MessageList messages={messages} />)
+
+    expect(screen.getByText('Tool Call Request')).toBeInTheDocument()
+    // Pre tag should contain formatted JSON or raw string
+    expect(screen.getByText(/"name": "get_weather"/)).toBeInTheDocument()
   })
 
   it('renders an empty list without message bubbles', () => {
@@ -111,3 +131,4 @@ describe('MessageList', () => {
     expect(container.firstElementChild).toHaveClass('space-y-4', 'py-6')
   })
 })
+

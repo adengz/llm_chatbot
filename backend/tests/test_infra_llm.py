@@ -35,10 +35,12 @@ class TestAsyncOllamaClient:
 
 	@pytest.mark.asyncio
 	async def test_stream_response_without_web_access(self, ollama_client: AsyncOllamaClient):
-		chunks = [chunk async for chunk in ollama_client.stream_response(
+		chunks = []
+		async for chunk in ollama_client.stream_response(
+			context=[Message(role='user', content=SIMPLE_PROPMT)],
 			model=OLLAMA_TEST_MODEL,
-			messages=[Message(role='user', content=SIMPLE_PROPMT)],
-		)]
+		):
+			chunks.append(chunk)
 		
 		assert chunks[-1].type == 'done'
 		assert chunks[-2].type == 'content'
@@ -54,11 +56,13 @@ class TestAsyncOllamaClient:
 		)])
 		ollama_client.client.web_search = AsyncMock(return_value=mock_response)
 
-		chunks = [chunk async for chunk in ollama_client.stream_response(
+		chunks = []
+		async for chunk in ollama_client.stream_response(
+			context=[Message(role='user', content=WEB_ACCESS_PROMPT)],
 			model=OLLAMA_TEST_MODEL,
-			messages=[Message(role='user', content=WEB_ACCESS_PROMPT)],
 			web_access=True,
-		)]
+		):
+			chunks.append(chunk)
 		
 		answer, tool_calls = [], []
 		for chunk in chunks:
@@ -75,10 +79,12 @@ class TestAsyncOllamaClient:
 	
 	@pytest.mark.asyncio
 	async def test_stream_response_model_error(self, ollama_client: AsyncOllamaClient):
-		chunks = [chunk async for chunk in ollama_client.stream_response(
+		chunks = []
+		async for chunk in ollama_client.stream_response(
+			context=[Message(role='user', content=SIMPLE_PROPMT)],
 			model='llama5',
-			messages=[Message(role='user', content=SIMPLE_PROPMT)],
-		)]
+		):
+			chunks.append(chunk)
 		
 		assert len(chunks) == 1
 		assert chunks[-1].type == 'error'
@@ -88,11 +94,13 @@ class TestAsyncOllamaClient:
 	async def test_stream_response_tool_error(self, ollama_client: AsyncOllamaClient):
 		ollama_client.client.web_search = AsyncMock(side_effect=Exception('Internal Server Error'))
 
-		chunks = [chunk async for chunk in ollama_client.stream_response(
+		chunks = []
+		async for chunk in ollama_client.stream_response(
+			context=[Message(role='user', content=WEB_ACCESS_PROMPT)],
 			model=OLLAMA_TEST_MODEL,
-			messages=[Message(role='user', content=WEB_ACCESS_PROMPT)],
 			web_access=True,
-		)]
+		):
+			chunks.append(chunk)
 		
 		assert len(chunks) > 1
 		assert chunks[-1].type == 'error'
