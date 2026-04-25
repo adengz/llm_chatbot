@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from typing import Literal, Any
+from typing import Literal
 
-from pydantic import BaseModel, UUID1, Field
+from pydantic import BaseModel, UUID1, Field, SerializeAsAny
 
 
 class Conversation(BaseModel):
@@ -29,7 +29,7 @@ class AgentStreamChunk(BaseModel):
     type: Literal['metadata', 'tool_call_req', 'tool_call_resp', 'thinking', 'content', 'done', 'error', 'warning']
     conversation_id: UUID1 | None = None
     delta: str | None = None
-    data: Any = None
+    data: SerializeAsAny[BaseModel] | None = None
     exception: str | None = None
     status_code: int = 200
     
