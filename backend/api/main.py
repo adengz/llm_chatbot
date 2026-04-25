@@ -106,16 +106,6 @@ async def generate_stream(conversation_id: UUID1, context: list[Message], model:
     buffer, stream_type = [], None
 
     async for chunk in await llm.stream_response(context=context, model=model, web_access=web_access):
-        if await is_disconnected():
-            await save_instream_message(db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type)
-            break
-
-        if chunk.type != stream_type:
-            warning = await save_instream_message(db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type)
-            if warning:
-                yield warning
-            buffer = []
-        
         data = None
         match chunk.type:
             case 'thinking' | 'content':
@@ -124,10 +114,22 @@ async def generate_stream(conversation_id: UUID1, context: list[Message], model:
                 data = chunk.data.model_dump_json()
             case _:
                 pass
+
+        if chunk.type != stream_type:
+            warning = await save_instream_message(db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type)
+            if warning:
+                yield warning
+            buffer = []
+
         if data:
             buffer.append(data)
+        
         stream_type = chunk.type
         yield sse_event(chunk)
+
+        if await is_disconnected():
+            await save_instream_message(db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type)
+            break
 
 
 @app.get('/models')
