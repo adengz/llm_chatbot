@@ -49,12 +49,19 @@ export type Message = {
     /**
      * Conversation Id
      */
-    conversation_id: string | null;
+    conversation_id?: string | null;
     /**
      * Created At
      */
     created_at?: string;
-    role: Role;
+    /**
+     * Role
+     */
+    role: 'user' | 'assistant';
+    /**
+     * Type
+     */
+    type?: 'tool_call_req' | 'tool_call_resp' | 'thinking' | 'content';
     /**
      * Content
      */
@@ -74,25 +81,14 @@ export type MessageRequest = {
      */
     content: string;
     /**
-     * Model Source
-     */
-    model_source: string;
-    /**
      * Model
      */
     model: string;
-    reasoning_effort?: ReasoningEffort;
+    /**
+     * Web Access
+     */
+    web_access?: boolean;
 };
-
-/**
- * ReasoningEffort
- */
-export type ReasoningEffort = 'low' | 'medium' | 'high';
-
-/**
- * Role
- */
-export type Role = 'user' | 'assistant';
 
 /**
  * ValidationError
@@ -122,25 +118,23 @@ export type ValidationError = {
     };
 };
 
-export type ListLlmsModelsGetData = {
+export type ListModelsModelsGetData = {
     body?: never;
     path?: never;
     query?: never;
     url: '/models';
 };
 
-export type ListLlmsModelsGetResponses = {
+export type ListModelsModelsGetResponses = {
     /**
-     * Response List Llms Models Get
+     * Response List Models Models Get
      *
      * Successful Response
      */
-    200: {
-        [key: string]: Array<string>;
-    };
+    200: Array<string>;
 };
 
-export type ListLlmsModelsGetResponse = ListLlmsModelsGetResponses[keyof ListLlmsModelsGetResponses];
+export type ListModelsModelsGetResponse = ListModelsModelsGetResponses[keyof ListModelsModelsGetResponses];
 
 export type CreateMessageMessagesPostData = {
     body: MessageRequest;

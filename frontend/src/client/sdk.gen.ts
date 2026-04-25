@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateMessageMessagesPostData, CreateMessageMessagesPostErrors, CreateMessageMessagesPostResponses, DeleteConversationConversationsConversationIdDeleteData, DeleteConversationConversationsConversationIdDeleteErrors, DeleteConversationConversationsConversationIdDeleteResponses, ListConversationsConversationsGetData, ListConversationsConversationsGetResponses, ListLlmsModelsGetData, ListLlmsModelsGetResponses, ListMessagesConversationsConversationIdMessagesGetData, ListMessagesConversationsConversationIdMessagesGetErrors, ListMessagesConversationsConversationIdMessagesGetResponses, RenameConversationConversationsConversationIdPatchData, RenameConversationConversationsConversationIdPatchErrors, RenameConversationConversationsConversationIdPatchResponses } from './types.gen';
+import type { CreateMessageMessagesPostData, CreateMessageMessagesPostErrors, CreateMessageMessagesPostResponses, DeleteConversationConversationsConversationIdDeleteData, DeleteConversationConversationsConversationIdDeleteErrors, DeleteConversationConversationsConversationIdDeleteResponses, ListConversationsConversationsGetData, ListConversationsConversationsGetResponses, ListMessagesConversationsConversationIdMessagesGetData, ListMessagesConversationsConversationIdMessagesGetErrors, ListMessagesConversationsConversationIdMessagesGetResponses, ListModelsModelsGetData, ListModelsModelsGetResponses, RenameConversationConversationsConversationIdPatchData, RenameConversationConversationsConversationIdPatchErrors, RenameConversationConversationsConversationIdPatchResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -19,9 +19,9 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * List Llms
+ * List Models
  */
-export const listLlmsModelsGet = <ThrowOnError extends boolean = false>(options?: Options<ListLlmsModelsGetData, ThrowOnError>) => (options?.client ?? client).get<ListLlmsModelsGetResponses, unknown, ThrowOnError>({ url: '/models', ...options });
+export const listModelsModelsGet = <ThrowOnError extends boolean = false>(options?: Options<ListModelsModelsGetData, ThrowOnError>) => (options?.client ?? client).get<ListModelsModelsGetResponses, unknown, ThrowOnError>({ url: '/models', ...options });
 
 /**
  * Create Message
