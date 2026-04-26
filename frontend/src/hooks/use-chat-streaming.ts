@@ -123,7 +123,6 @@ export function useChatStreaming({
             if (currentStreamingId) {
               let delta = ''
               if (event.type === 'tool_call_req' || event.type === 'tool_call_resp') {
-                // @ts-expect-error - data is present in tool call events from backend
                 if (event.data) {
                   delta = typeof event.data === 'string' ? event.data : JSON.stringify(event.data)
                 } else if (event.delta) {
