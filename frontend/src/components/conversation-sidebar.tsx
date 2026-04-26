@@ -100,7 +100,7 @@ export function ConversationSidebar({
               } ${isDeleting ? 'opacity-40 pointer-events-none' : ''}`}
             >
               {isEditing ? (
-                <div className="p-3">
+                <div className="flex h-[46px] items-center px-3">
                   <input
                     ref={inputRef}
                     className="w-full rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
@@ -113,17 +113,16 @@ export function ConversationSidebar({
                     onBlur={() => void commitRename(conversation.conversation_id)}
                     autoFocus
                   />
-                  <p className="mt-1 text-xs text-muted-foreground">Enter to save · Esc to cancel</p>
                 </div>
               ) : (
                 <button
-                  className="w-full p-3 text-left"
+                  className="flex h-[46px] w-full items-center px-3 text-left"
                   disabled={isStreaming}
                   type="button"
                   onClick={() => onSelectConversation(conversation.conversation_id)}
                 >
                   <p
-                    className="line-clamp-1 pr-8 font-medium text-foreground"
+                    className="line-clamp-1 w-full pr-8 font-medium text-foreground"
                     title="Double-click to rename"
                     onDoubleClick={(e) => { e.stopPropagation(); startRename(conversation) }}
                   >
@@ -133,7 +132,7 @@ export function ConversationSidebar({
               )}
 
               {!isEditing && (
-                <div className="absolute right-2 top-2 hidden gap-1 group-hover:flex">
+                <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 gap-1 group-hover:flex">
                   <button
                     type="button"
                     className="rounded p-1 text-muted-foreground hover:bg-background hover:text-destructive"

@@ -25,7 +25,7 @@ export function useChatScroll({ scrollRef }: UseChatScrollParams): UseChatScroll
       return
     }
 
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
     if (isNearBottom) {
       el.scrollTop = el.scrollHeight
     }

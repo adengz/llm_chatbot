@@ -1,7 +1,7 @@
-from enum import StrEnum
 from datetime import datetime, timezone
+from typing import Literal
 
-from pydantic import BaseModel, UUID1, Field
+from pydantic import BaseModel, UUID1, Field, SerializeAsAny
 
 
 class Conversation(BaseModel):
@@ -10,28 +10,26 @@ class Conversation(BaseModel):
     title: str
 
 
-class Role(StrEnum):
-    USER = 'user'
-    ASSISTANT = 'assistant'
-
-
 class Message(BaseModel):
-    conversation_id: UUID1 | None
+    conversation_id: UUID1 | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    role: Role
+    role: Literal['user', 'assistant']
+    type: Literal['tool_call_req', 'tool_call_resp', 'thinking', 'content'] = 'content'
     content: str
-
-
-class ReasoningEffort(StrEnum):
-    LOW = 'low'
-    MEDIUM = 'medium'
-    HIGH = 'high'
 
 
 class MessageRequest(BaseModel):
     conversation_id: UUID1 | None = None
     content: str
-    model_source: str
     model: str
-    reasoning_effort: ReasoningEffort = ReasoningEffort.MEDIUM
+    web_access: bool = False
+
+
+class AgentStreamChunk(BaseModel):
+    type: Literal['metadata', 'tool_call_req', 'tool_call_resp', 'thinking', 'content', 'done', 'error', 'warning']
+    conversation_id: UUID1 | None = None
+    delta: str | None = None
+    data: SerializeAsAny[BaseModel] | None = None
+    exception: str | None = None
+    status_code: int = 200
     

@@ -1,9 +1,9 @@
-import { Check, ChevronRight, RefreshCw, SendHorizontal, Square } from 'lucide-react'
+import { Check, ChevronRight, RefreshCw, SendHorizontal, Square, Globe } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
-import type { ModelSource, ReasoningEffort } from './chat-types'
+import type { ModelSource } from './chat-types'
 
 type MessageComposerProps = {
   draft: string
@@ -12,11 +12,11 @@ type MessageComposerProps = {
   modelOptionsBySource: Record<ModelSource, string[]>
   isModelOptionsLoading: boolean
   modelOptionsError: string | null
-  reasoningEffort: ReasoningEffort
+  webAccess: boolean
   onDraftChange: (value: string) => void
   onModelSourceChange: (value: ModelSource) => void
   onModelChange: (value: string) => void
-  onReasoningEffortChange: (value: ReasoningEffort) => void
+  onWebAccessChange: (value: boolean) => void
   onSendClick: () => void
   onStopClick: () => void
   onRefreshModels: () => void
@@ -30,11 +30,11 @@ export function MessageComposer({
   modelOptionsBySource,
   isModelOptionsLoading,
   modelOptionsError,
-  reasoningEffort,
+  webAccess,
   onDraftChange,
   onModelSourceChange,
   onModelChange,
-  onReasoningEffortChange,
+  onWebAccessChange,
   onSendClick,
   onStopClick,
   onRefreshModels,
@@ -45,7 +45,6 @@ export function MessageComposer({
   const [modelFilter, setModelFilter] = useState('')
   const pickerRef = useRef<HTMLDivElement>(null)
 
-  const sourceOptions = Object.keys(modelOptionsBySource)
   const allModelOptions = modelOptionsBySource[pendingSource] ?? []
   const modelOptions = modelFilter
     ? allModelOptions.filter((m) => m.toLowerCase().includes(modelFilter.toLowerCase()))
@@ -83,11 +82,6 @@ export function MessageComposer({
     }
   }, [isModelPickerOpen])
 
-  const handleSourceSelected = (source: ModelSource) => {
-    setPendingSource(source)
-    setModelFilter('')
-  }
-
   const handleModelSelected = (selectedModel: string) => {
     onModelSourceChange(pendingSource)
     onModelChange(selectedModel)
@@ -120,7 +114,7 @@ export function MessageComposer({
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <div className="relative w-72 max-w-full" ref={pickerRef}>
+        <div className="relative w-60 max-w-full" ref={pickerRef}>
           <button
             type="button"
             className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-left"
@@ -128,122 +122,88 @@ export function MessageComposer({
             aria-haspopup="menu"
             aria-expanded={isModelPickerOpen}
           >
-            <span className="truncate text-sm">{model ? `${modelSource} / ${model}` : 'Select model'}</span>
-            <ChevronRight className="size-4 text-muted-foreground" />
+            <span className="truncate text-sm">{model || 'Select model'}</span>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${isModelPickerOpen ? 'rotate-90' : ''}`} />
           </button>
 
           {isModelPickerOpen && (
-            <div className="absolute bottom-full left-0 z-20 mb-2 flex rounded-md border border-border bg-popover shadow-lg">
-              {/* Source panel */}
-              <div className="w-44 border-r border-border/60 p-1" role="menu" aria-label="Model sources">
-                <div className="flex items-center justify-between px-2 py-1">
-                  <p className="text-xs text-muted-foreground">Source</p>
-                  <button
-                    type="button"
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-40"
-                    aria-label="Refresh models"
-                    disabled={isModelOptionsLoading}
-                    onClick={onRefreshModels}
-                  >
-                    <RefreshCw className="size-3" />
-                  </button>
-                </div>
-                {isModelOptionsLoading && (
-                  <p className="px-2 py-2 text-xs text-muted-foreground">Loading…</p>
-                )}
-                {!isModelOptionsLoading && modelOptionsError && (
-                  <p className="px-2 py-2 text-xs text-destructive">{modelOptionsError}</p>
-                )}
-                <div className="max-h-52 overflow-y-auto">
-                  {sourceOptions.map((source) => (
-                    <button
-                      key={source}
-                      type="button"
-                      className={`flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-muted ${pendingSource === source ? 'bg-muted font-medium' : ''}`}
-                      disabled={isModelOptionsLoading}
-                      onClick={() => handleSourceSelected(source)}
-                    >
-                      <span>{source}</span>
-                      <ChevronRight className="size-4 text-muted-foreground" />
-                    </button>
-                  ))}
-                  {!isModelOptionsLoading && sourceOptions.length === 0 && (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">No sources available.</p>
-                  )}
-                </div>
+            <div className="absolute bottom-full left-0 z-20 mb-2 flex w-full flex-col rounded-md border border-border bg-popover p-1 shadow-lg">
+              <div className="flex items-center justify-between px-2 py-1">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                  Select Model
+                </p>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  aria-label="Refresh models"
+                  disabled={isModelOptionsLoading}
+                  onClick={onRefreshModels}
+                >
+                  <RefreshCw className={`size-3 ${isModelOptionsLoading ? 'animate-spin' : ''}`} />
+                </button>
               </div>
 
-              {/* Model panel */}
-              <div className="w-52 p-1" role="menu" aria-label={`Models under ${pendingSource}`}>
-                <p className="px-2 py-1 text-xs text-muted-foreground">{pendingSource || 'Models'}</p>
-                {pendingSource && (
-                  <div className="px-1 pb-1">
-                    <input
-                      type="text"
-                      className="h-7 w-full rounded border border-input bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      placeholder="Filter models…"
-                      value={modelFilter}
-                      onChange={(e) => setModelFilter(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          closePicker()
-                          return
-                        }
-                        e.stopPropagation()
-                      }}
-                      autoFocus
-                    />
-                  </div>
+              <div className="px-1 pb-1">
+                <input
+                  type="text"
+                  className="h-8 w-full rounded border border-input bg-background px-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  placeholder="Filter models…"
+                  value={modelFilter}
+                  onChange={(e) => setModelFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      closePicker()
+                      return
+                    }
+                    e.stopPropagation()
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              <div className="max-h-60 overflow-y-auto overflow-x-hidden">
+                {isModelOptionsLoading && (
+                  <p className="px-2 py-4 text-center text-xs text-muted-foreground">Loading models...</p>
                 )}
-                <div className="max-h-52 overflow-y-auto">
-                  {modelOptions.map((modelName) => (
-                    <button
-                      key={modelName}
-                      type="button"
-                      className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-muted"
-                      disabled={isModelOptionsLoading}
-                      onClick={() => handleModelSelected(modelName)}
-                    >
-                      <span className="truncate">{modelName}</span>
-                      {modelSource === pendingSource && model === modelName && (
-                        <Check className="ml-2 size-4 shrink-0 text-primary" />
-                      )}
-                    </button>
-                  ))}
-                  {!isModelOptionsLoading && modelOptions.length === 0 && (
-                    <p className="px-2 py-2 text-xs text-muted-foreground">
-                      {!pendingSource
-                        ? 'Select a source.'
-                        : modelFilter
-                        ? 'No models match your filter.'
-                        : 'No models for this source.'}
-                    </p>
-                  )}
-                </div>
+                {!isModelOptionsLoading && modelOptions.length === 0 && (
+                  <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+                    {modelFilter ? 'No models match filter' : 'No models available'}
+                  </p>
+                )}
+                {modelOptions.map((modelName) => (
+                  <button
+                    key={modelName}
+                    type="button"
+                    className={`group flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                      model === modelName ? 'bg-primary/5 font-medium' : ''
+                    }`}
+                    onClick={() => handleModelSelected(modelName)}
+                  >
+                    <span className="truncate">{modelName}</span>
+                    {model === modelName && <Check className="size-4 shrink-0 text-primary" />}
+                  </button>
+                ))}
               </div>
             </div>
           )}
         </div>
 
-        <fieldset className="flex h-9 items-center gap-2 rounded-md border border-input px-3">
-          <legend className="px-1 text-[10px] uppercase tracking-wide text-muted-foreground">Reasoning</legend>
-          {(['low', 'medium', 'high'] as const).map((effort) => (
-            <label key={effort} className="flex items-center gap-1 text-xs capitalize text-foreground">
-              <input
-                type="radio"
-                name="reasoning-effort"
-                value={effort}
-                checked={reasoningEffort === effort}
-                onChange={() => onReasoningEffortChange(effort)}
-                className="size-3 accent-primary"
-              />
-              <span>{effort}</span>
-            </label>
-          ))}
-        </fieldset>
+        <Button
+          className={`h-9 w-9 shrink-0 items-center justify-center p-0 ${
+            webAccess
+              ? 'bg-primary/10 text-primary border-primary/30'
+              : 'bg-transparent text-muted-foreground border-input'
+          }`}
+          variant="outline"
+          type="button"
+          onClick={() => onWebAccessChange(!webAccess)}
+          title="Web Access"
+        >
+          <Globe className={`size-4 ${webAccess ? 'text-primary' : 'text-muted-foreground'}`} />
+        </Button>
 
         <Button
-          className="h-10 w-10 shrink-0"
+          className="h-9 w-9 shrink-0"
           size="icon"
           type="button"
           aria-label={isStreaming ? 'Stop streaming response' : 'Send message'}

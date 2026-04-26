@@ -3,7 +3,9 @@ import { API_BASE_URL } from '../config'
 
 export type SSEEvent =
   | { type: 'metadata'; conversation_id: string }
-  | { type: 'reasoning'; delta: string }
+  | { type: 'thinking'; delta: string }
+  | { type: 'tool_call_req'; delta?: string; data?: unknown }
+  | { type: 'tool_call_resp'; delta?: string; data?: unknown }
   | { type: 'content'; delta: string }
   | { type: 'error'; exception: string }
   | { type: 'done' }

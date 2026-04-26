@@ -19,6 +19,7 @@ function toChatMessage(message: ApiMessage, index: number): ChatMessage {
   return {
     id: `${message.created_at ?? 'message'}-${message.role}-${index}`,
     role: message.role,
+    type: message.type,
     content: message.content,
   }
 }
