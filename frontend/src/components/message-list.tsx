@@ -154,7 +154,7 @@ function ToolCallDisplay({ content, type, isStreaming }: { content: string; type
       displayContent = JSON.stringify(parsedData, null, 2)
       isValidJson = true
     }
-  } catch (e) {
+  } catch {
     // Partial JSON or not JSON
   }
 

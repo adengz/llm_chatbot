@@ -213,7 +213,7 @@ describe('MessageList', () => {
       }),
     ]
 
-    const { container } = render(<MessageList messages={messages} />)
+    render(<MessageList messages={messages} />)
 
     // Top level object is expanded
     expect(screen.getByText('"items"')).toBeInTheDocument()
@@ -261,7 +261,7 @@ describe('MessageList', () => {
       }),
     ]
 
-    const { container } = render(<MessageList messages={messages} />)
+    render(<MessageList messages={messages} />)
 
     // Simple arrays with 3 or fewer items should display inline without expand button
     expect(screen.getByText('"tags"')).toBeInTheDocument()

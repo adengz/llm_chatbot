@@ -45,7 +45,6 @@ export function MessageComposer({
   const [modelFilter, setModelFilter] = useState('')
   const pickerRef = useRef<HTMLDivElement>(null)
 
-  const sourceOptions = Object.keys(modelOptionsBySource)
   const allModelOptions = modelOptionsBySource[pendingSource] ?? []
   const modelOptions = modelFilter
     ? allModelOptions.filter((m) => m.toLowerCase().includes(modelFilter.toLowerCase()))
@@ -82,11 +81,6 @@ export function MessageComposer({
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isModelPickerOpen])
-
-  const handleSourceSelected = (source: ModelSource) => {
-    setPendingSource(source)
-    setModelFilter('')
-  }
 
   const handleModelSelected = (selectedModel: string) => {
     onModelSourceChange(pendingSource)
