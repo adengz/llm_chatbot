@@ -1,15 +1,12 @@
 {
-    "sqltools.connections": [
-        {
-            "server": "localhost",
-            "port": 9042,
-            "previewLimit": 50,
-            "driver": "Scylla",
-            "name": "localhost",
-            "database": "chatbot",
-            "password": ""
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
         }
-    ],
+    },
     "python.testing.pytestArgs": [
         "backend",
         "-s"
