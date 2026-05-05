@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Protocol, Callable, Awaitable, Literal, AsyncGenerator
+from typing import Protocol, Callable, Awaitable, AsyncGenerator
 
 from pydantic import UUID1
 from fastapi import FastAPI, Request, Depends, Body
@@ -16,7 +16,7 @@ class LLMClient(Protocol):
     async def list_models(self) -> list[str]:
         ...
 
-    async def stream_response(self, context: list[Message], model: str, web_access: bool = False) \
+    def stream_response(self, context: list[Message], model: str, web_access: bool = False) \
         -> AsyncGenerator[AgentStreamChunk, None]:
         ...
 
@@ -92,18 +92,18 @@ async def list_context(db: DBClient, conversation_id: UUID1, cursor: datetime) -
     return messages
 
 
-sse_event = lambda model: f'data: {model.model_dump_json()}\n\n'
+def sse_event(model: AgentStreamChunk) -> str:
+    return f'data: {model.model_dump_json()}\n\n'
 
 
-async def save_instream_message(db: DBClient, conversation_id: UUID1, buffer: list[str], 
-                                tp: Literal['tool_call_req', 'tool_call_resp', 'thinking', 'content']) -> str | None:
-    if not buffer:
+async def save_instream_message(db: DBClient, conversation_id: UUID1, buffer: list[str], tp: str | None) \
+    -> str | None:
+    if not buffer or tp not in ('thinking', 'content', 'tool_call_req', 'tool_call_resp'):
         return 
     message = Message(conversation_id=conversation_id, role='assistant', type=tp, content=''.join(buffer))
     warning = None
     try:
         await db.create_message(message=message)
-        return
     except Exception as exc:
         warning = sse_event(AgentStreamChunk(type='warning', exception='Failed to save message: ' + str(exc)))
     return warning
@@ -122,14 +122,15 @@ async def generate_stream(conversation_id: UUID1, context: list[Message], model:
             case 'thinking' | 'content':
                 data = chunk.delta
             case 'tool_call_req' | 'tool_call_resp':
-                data = chunk.data.model_dump_json()
+                if chunk.data is not None:
+                    data = chunk.data.model_dump_json()
             case _:
                 pass
 
         if chunk.type != stream_type:
-            warning = await save_instream_message(db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type)
-            if warning:
-                yield warning
+            warn = await save_instream_message(db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type)
+            if warn:
+                yield warn
             buffer = []
 
         if data:
@@ -157,7 +158,7 @@ async def create_message(req: MessageRequest, db: DBClient = Depends(get_db),
     message = Message(conversation_id=req.conversation_id, role='user', content=req.content)
     
     context = []
-    if req.conversation_id is None:
+    if message.conversation_id is None:
         message.conversation_id = await db.create_conversation(user_id=user_id, title=message.content)
     else:
         context = await list_context(db=db, conversation_id=message.conversation_id, cursor=message.created_at)

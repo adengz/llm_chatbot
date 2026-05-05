@@ -22,17 +22,15 @@ MockWebSearchResult = create_model('MockWebSearchResult', content=str, title=str
 MockWebSearchResponse = create_model('MockWebSearchResponse', results=(list[MockWebSearchResult], ...))
 
 
+StreamItem = tuple[Literal['thinking', 'tool_call_req', 'tool_call_resp', 'content'], str | BaseModel]
+
+
 class MockLLMStreamer:
 
-    def __init__(
-            self, 
-            responses: list[
-                tuple[Literal['thinking', 'tool_call_req', 'tool_call_resp', 'content'], str | BaseModel]
-            ],
-        ):
+    def __init__(self, responses: list[StreamItem]):
         self.chunks = []
         for tp, data in responses:
-            if tp in ['thinking', 'content']:
+            if isinstance(data, str):
                 for delta in tokenize(data):
                     self.chunks.append(AgentStreamChunk(type=tp, delta=delta))
             else:
@@ -91,7 +89,7 @@ class TestAppEndpoints:
         conv_id = uuid.uuid1()
         mock_db.create_conversation.return_value = conv_id
 
-        llm_responses = [
+        llm_responses: list[StreamItem] = [
             ('thinking', 'Need to respond friendly.'),
             ('content', 'Hi there! 👋 How can I help you today?'),
         ]
@@ -133,7 +131,8 @@ class TestAppEndpoints:
                 case 'thinking' | 'content':
                     assert bot_msg.content == data
                 case 'tool_call_req' | 'tool_call_resp':
-                    assert bot_msg.content == data.dump_model_json()
+                    assert isinstance(data, BaseModel)
+                    assert bot_msg.content == data.model_dump_json()
 
     def test_create_message_existing_conversation(self, api_ut_toolkit):
         client, mock_db, mock_llm, _ = api_ut_toolkit
@@ -218,7 +217,7 @@ class TestAppEndpoints:
         # Disconnect after exactly 1 iteration (1st chunk)
         mock_disconnect.side_effect = [True]
 
-        llm_responses = [
+        llm_responses: list[StreamItem] = [
             ('thinking', 'Need to respond friendly.'),
             ('content', 'Hi there! 👋 How can I help you today?'),
         ]
@@ -233,14 +232,14 @@ class TestAppEndpoints:
         
         assert len(events) == 1 + 1
         assert events[-1]['type'] == llm_responses[0][0]
-        expected_content = tokenize(llm_responses[0][1])[0]
-        assert events[-1]['delta'] == expected_content
+        expected_message = tokenize(str(llm_responses[0][1]))[0]
+        assert events[-1]['delta'] == expected_message
         
         assert mock_db.create_message.await_count == 2
         bot_msg = mock_db.create_message.await_args_list[1].kwargs['message']
         assert bot_msg.role == 'assistant'
         assert bot_msg.type == llm_responses[0][0]
-        assert bot_msg.content == expected_content
+        assert bot_msg.content == expected_message
 
     def test_create_message_db_failure_during_stream(self, api_ut_toolkit):
         client, mock_db, mock_llm, _ = api_ut_toolkit
@@ -253,7 +252,7 @@ class TestAppEndpoints:
         db_exp = Exception('DB Down')
         mock_db.create_message.side_effect = [None, db_exp, db_exp]
 
-        llm_responses = [
+        llm_responses: list[StreamItem] = [
             ('thinking', 'Need to respond friendly.'),
             ('content', 'Hi there! 👋 How can I help you today?'),
         ]

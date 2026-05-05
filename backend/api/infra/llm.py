@@ -25,7 +25,7 @@ class AsyncOllamaClient:
     
     async def stream_response(self, context: list[Message], model: str, web_access: bool = False) \
         -> AsyncGenerator[AgentStreamChunk, None]:
-        messages = [m.model_dump(include=['role', 'content']) for m in reversed(context)]
+        messages = [m.model_dump(include={'role', 'content'}) for m in reversed(context)]
         tools = [web_search, web_fetch] if web_access else None
         done = False
         tool_calls = deque()
