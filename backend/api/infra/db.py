@@ -2,7 +2,6 @@ import datetime
 import uuid
 from typing import Any, Self
 
-from pydantic import UUID1
 from scyllapy import PreparedQuery, QueryResult, Scylla, extra_types
 
 from api.domain.models import Conversation, Message
@@ -39,7 +38,7 @@ class ScyllapyClient:
         except Exception as exc:
             raise DatabaseException("Database operation failed") from exc
 
-    async def create_conversation(self, user_id: int, title: str) -> UUID1:
+    async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
         conversation_id = uuid.uuid1()
         await self._execute_prepared(
             "INSERT INTO conversations (user_id, conversation_id, title) VALUES (?, ?, ?)",
@@ -48,14 +47,16 @@ class ScyllapyClient:
         return conversation_id
 
     async def rename_conversation(
-        self, user_id: int, conversation_id: UUID1, new_title: str
+        self, user_id: int, conversation_id: uuid.UUID, new_title: str
     ) -> None:
         await self._execute_prepared(
             "UPDATE conversations SET title = ? WHERE user_id = ? AND conversation_id = ?",
             [new_title, extra_types.BigInt(user_id), conversation_id],
         )
 
-    async def delete_conversation(self, user_id: int, conversation_id: UUID1) -> None:
+    async def delete_conversation(
+        self, user_id: int, conversation_id: uuid.UUID
+    ) -> None:
         await self._execute_prepared(
             "DELETE FROM messages WHERE conversation_id = ?",
             [conversation_id],
@@ -93,7 +94,7 @@ class ScyllapyClient:
 
     async def list_messages(
         self,
-        conversation_id: UUID1,
+        conversation_id: uuid.UUID,
         cursor: datetime.datetime,
         limit: int = 2,
         content_only: bool = False,

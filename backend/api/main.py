@@ -1,3 +1,4 @@
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Awaitable, Callable, Protocol
@@ -5,7 +6,6 @@ from typing import AsyncGenerator, Awaitable, Callable, Protocol
 from fastapi import Body, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import UUID1
 
 from api.domain.models import AgentStreamChunk, Conversation, Message, MessageRequest
 from api.infra.exceptions import DatabaseException
@@ -20,14 +20,14 @@ class LLMClient(Protocol):
 
 
 class DBClient(Protocol):
-    async def create_conversation(self, user_id: int, title: str) -> UUID1: ...
+    async def create_conversation(self, user_id: int, title: str) -> uuid.UUID: ...
 
     async def rename_conversation(
-        self, user_id: int, conversation_id: UUID1, new_title: str
+        self, user_id: int, conversation_id: uuid.UUID, new_title: str
     ) -> None: ...
 
     async def delete_conversation(
-        self, user_id: int, conversation_id: UUID1
+        self, user_id: int, conversation_id: uuid.UUID
     ) -> None: ...
 
     async def list_conversations(self, user_id: int) -> list[Conversation]: ...
@@ -36,7 +36,7 @@ class DBClient(Protocol):
 
     async def list_messages(
         self,
-        conversation_id: UUID1,
+        conversation_id: uuid.UUID,
         cursor: datetime,
         limit: int = 2,
         content_only: bool = False,
@@ -87,7 +87,7 @@ def get_disconnect_checker(request: Request) -> Callable[[], Awaitable[bool]]:
 
 
 async def list_context(
-    db: DBClient, conversation_id: UUID1, cursor: datetime
+    db: DBClient, conversation_id: uuid.UUID, cursor: datetime
 ) -> list[Message]:
     messages = []
     while True:
@@ -106,7 +106,7 @@ def sse_event(model):
 
 
 async def save_instream_message(
-    db: DBClient, conversation_id: UUID1, buffer: list[str], tp: str | None
+    db: DBClient, conversation_id: uuid.UUID, buffer: list[str], tp: str | None
 ) -> str | None:
     if not buffer or tp not in (
         "thinking",
@@ -134,7 +134,7 @@ async def save_instream_message(
 
 
 async def generate_stream(
-    conversation_id: UUID1,
+    conversation_id: uuid.UUID,
     context: list[Message],
     model: str,
     web_access: bool,
@@ -231,7 +231,7 @@ async def list_conversations(db: DBClient = Depends(get_db)) -> list[Conversatio
 
 @app.get("/conversations/{conversation_id}/messages")
 async def list_messages(
-    conversation_id: UUID1,
+    conversation_id: uuid.UUID,
     cursor: datetime | None = None,
     limit: int = 2,
     db: DBClient = Depends(get_db),
@@ -245,7 +245,7 @@ async def list_messages(
 
 @app.delete("/conversations/{conversation_id}")
 async def delete_conversation(
-    conversation_id: UUID1, db: DBClient = Depends(get_db)
+    conversation_id: uuid.UUID, db: DBClient = Depends(get_db)
 ) -> None:
     user_id = get_user_id()
     await db.delete_conversation(user_id=user_id, conversation_id=conversation_id)
@@ -253,7 +253,7 @@ async def delete_conversation(
 
 @app.patch("/conversations/{conversation_id}")
 async def rename_conversation(
-    conversation_id: UUID1,
+    conversation_id: uuid.UUID,
     title: str = Body(embed=True),
     db: DBClient = Depends(get_db),
 ) -> None:

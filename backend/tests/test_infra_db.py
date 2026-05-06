@@ -10,27 +10,28 @@ import pytest_asyncio
 from api.domain.models import Message
 from api.infra.db import ScyllapyClient
 from api.main import DBClient
-from pydantic import UUID1
 from scyllapy import Batch, extra_types
 
 
 class DBHarness(Protocol):
     async def truncate_tables(self) -> None: ...
 
-    async def insert_conversation(self, user_id: int = 0, title: str = "") -> UUID1: ...
+    async def insert_conversation(
+        self, user_id: int = 0, title: str = ""
+    ) -> uuid.UUID: ...
 
     async def fetch_conversation_title(
-        self, user_id: int, conversation_id: UUID1
+        self, user_id: int, conversation_id: uuid.UUID
     ) -> str | None: ...
 
     async def count_conversations(self, user_id: int) -> int: ...
 
-    async def count_messages(self, conversation_id: UUID1) -> int: ...
+    async def count_messages(self, conversation_id: uuid.UUID) -> int: ...
 
     async def insert_messages(self, messages: list[Message]) -> None: ...
 
     async def fetch_message_record(
-        self, conversation_id: UUID1, created_at: datetime
+        self, conversation_id: uuid.UUID, created_at: datetime
     ) -> tuple[str, str] | None: ...
 
 
@@ -48,7 +49,7 @@ class ScyllapyHarness:
         await self.client.scylla.execute("TRUNCATE conversations")
         await self.client.scylla.execute("TRUNCATE messages")
 
-    async def insert_conversation(self, user_id: int = 0, title: str = "") -> UUID1:
+    async def insert_conversation(self, user_id: int = 0, title: str = "") -> uuid.UUID:
         conversation_id = uuid.uuid1()
         await self.client.scylla.execute(
             "INSERT INTO conversations (user_id, conversation_id, title) VALUES (?, ?, ?)",
@@ -57,7 +58,7 @@ class ScyllapyHarness:
         return conversation_id
 
     async def fetch_conversation_title(
-        self, user_id: int, conversation_id: UUID1
+        self, user_id: int, conversation_id: uuid.UUID
     ) -> str | None:
         rows = await self.client.scylla.execute(
             "SELECT title FROM conversations WHERE user_id = ? AND conversation_id = ?",
@@ -74,7 +75,7 @@ class ScyllapyHarness:
         row = rows.first()
         return row["count"] if row else 0
 
-    async def count_messages(self, conversation_id: UUID1) -> int:
+    async def count_messages(self, conversation_id: uuid.UUID) -> int:
         rows = await self.client.scylla.execute(
             "SELECT COUNT(1) AS count FROM messages WHERE conversation_id = ?",
             [conversation_id],
@@ -97,7 +98,7 @@ class ScyllapyHarness:
         )
 
     async def fetch_message_record(
-        self, conversation_id: UUID1, created_at: datetime
+        self, conversation_id: uuid.UUID, created_at: datetime
     ) -> tuple[str, str] | None:
         rows = await self.client.scylla.execute(
             "SELECT role, content FROM messages WHERE conversation_id = ? AND created_at = ?",
