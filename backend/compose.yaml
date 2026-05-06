@@ -17,5 +17,5 @@ services:
       scylla:
         condition: service_healthy
     volumes:
-      - ./init.cql:/init.cql
-    entrypoint: ["/bin/bash", "-c", "cqlsh scylla -f /init.cql"]
+      - ./init_keyspace.cql:/init_keyspace.cql
+    entrypoint: ["/bin/bash", "-c", "cqlsh scylla -f /init_keyspace.cql"]
