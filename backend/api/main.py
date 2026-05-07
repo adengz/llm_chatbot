@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.domain.models import AgentStreamChunk, Conversation, Message, MessageRequest
-from api.infra.exceptions import DatabaseException
+from api.infra.db import DatabaseException
 
 
 class LLMClient(Protocol):
@@ -49,15 +49,14 @@ def get_user_id() -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from api.infra.db import ScyllapyClient
+    from api.infra.db import DynamoDBClient
 
-    db_client = await ScyllapyClient.create(["localhost:9042"], "chatbot")
+    db_client = DynamoDBClient()
     app.state.db_client = db_client
     from api.infra.llm import AsyncOllamaClient
 
     app.state.llm_client = AsyncOllamaClient(use_cloud=True)
     yield
-    await db_client.close()
 
 
 app = FastAPI(lifespan=lifespan)

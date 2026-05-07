@@ -1,138 +1,16 @@
 import datetime
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Literal, Self, cast
+from typing import Literal, cast
 
 import aioboto3
 from boto3.dynamodb.conditions import Key
-from scyllapy import PreparedQuery, QueryResult, Scylla, extra_types
 
 from api.domain.models import Conversation, Message
-from api.infra.exceptions import DatabaseException
 
 
-class ScyllapyClient:
-    def __init__(self, scylla: Scylla):
-        self.scylla = scylla
-        self._prepared_statements = {}
-
-    @classmethod
-    async def create(
-        cls, contact_points: list[str], keyspace: str | None = None
-    ) -> Self:
-        scylla = Scylla(contact_points, keyspace=keyspace)
-        await scylla.startup()
-        return cls(scylla)
-
-    async def close(self) -> None:
-        await self.scylla.shutdown()
-
-    async def _prepare(self, query: str) -> PreparedQuery:
-        prepared = self._prepared_statements.get(query)
-        if prepared is None:
-            prepared = await self.scylla.prepare(query)
-            self._prepared_statements[query] = prepared
-        return prepared
-
-    async def _execute_prepared(self, query: str, parameters: list[Any]) -> QueryResult:
-        try:
-            prepared = await self._prepare(query)
-            return await self.scylla.execute(prepared, parameters)
-        except Exception as exc:
-            raise DatabaseException("Database operation failed") from exc
-
-    async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
-        conversation_id = uuid.uuid1()
-        await self._execute_prepared(
-            "INSERT INTO conversations (user_id, conversation_id, title) VALUES (?, ?, ?)",
-            [extra_types.BigInt(user_id), conversation_id, title],
-        )
-        return conversation_id
-
-    async def rename_conversation(
-        self, user_id: int, conversation_id: uuid.UUID, new_title: str
-    ) -> None:
-        await self._execute_prepared(
-            "UPDATE conversations SET title = ? WHERE user_id = ? AND conversation_id = ?",
-            [new_title, extra_types.BigInt(user_id), conversation_id],
-        )
-
-    async def delete_conversation(
-        self, user_id: int, conversation_id: uuid.UUID
-    ) -> None:
-        await self._execute_prepared(
-            "DELETE FROM messages WHERE conversation_id = ?",
-            [conversation_id],
-        )
-        await self._execute_prepared(
-            "DELETE FROM conversations WHERE user_id = ? AND conversation_id = ?",
-            [extra_types.BigInt(user_id), conversation_id],
-        )
-
-    async def list_conversations(self, user_id: int) -> list[Conversation]:
-        result = await self._execute_prepared(
-            "SELECT conversation_id, title FROM conversations WHERE user_id = ?",
-            [extra_types.BigInt(user_id)],
-        )
-        return [
-            Conversation(
-                user_id=user_id,
-                conversation_id=row["conversation_id"],
-                title=row["title"],
-            )
-            for row in result.all()
-        ]
-
-    async def create_message(self, message: Message) -> None:
-        await self._execute_prepared(
-            "INSERT INTO messages (conversation_id, created_at, role, type, content) VALUES (?, ?, ?, ?, ?)",
-            [
-                message.conversation_id,
-                message.created_at,
-                message.role,
-                message.type,
-                message.content,
-            ],
-        )
-
-    async def scroll_messages(
-        self,
-        conversation_id: uuid.UUID,
-        cursor: datetime.datetime,
-        limit: int = 100,
-    ) -> list[Message]:
-        result = await self._execute_prepared(
-            "SELECT created_at, role, type, content FROM messages WHERE conversation_id = ? AND created_at < ? LIMIT ?",
-            [conversation_id, cursor, limit],
-        )
-        return [
-            Message(
-                conversation_id=conversation_id,
-                created_at=row["created_at"],
-                role=row["role"],
-                type=row["type"],
-                content=row["content"],
-            )
-            for row in result.all()
-        ]
-
-    async def load_historical_contents(
-        self, conversation_id: uuid.UUID
-    ) -> list[Message]:
-        result = await self._execute_prepared(
-            "SELECT created_at, role, type, content FROM messages WHERE conversation_id = ? AND type = ?",
-            [conversation_id, "content"],
-        )
-        return [
-            Message(
-                conversation_id=conversation_id,
-                created_at=row["created_at"],
-                role=row["role"],
-                type=row["type"],
-                content=row["content"],
-            )
-            for row in result.all()
-        ]
+class DatabaseException(Exception):
+    pass
 
 
 class DynamoDBClient:
@@ -143,10 +21,13 @@ class DynamoDBClient:
     @asynccontextmanager
     async def get_resource(self):
         endpoint_url = "http://localhost:8000" if self.use_local else None
-        async with self.session.resource(
-            "dynamodb", endpoint_url=endpoint_url
-        ) as resource:
-            yield resource
+        try:
+            async with self.session.resource(
+                "dynamodb", endpoint_url=endpoint_url
+            ) as resource:
+                yield resource
+        except Exception as e:
+            raise DatabaseException("Failed to get DynamoDB resource") from e
 
     async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
         conversation_id = uuid.uuid7()

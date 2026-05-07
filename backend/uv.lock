@@ -196,7 +196,6 @@ dependencies = [
     { name = "aioboto3" },
     { name = "fastapi", extra = ["standard"] },
     { name = "ollama" },
-    { name = "scyllapy" },
 ]
 
 [package.dev-dependencies]
@@ -212,7 +211,6 @@ requires-dist = [
     { name = "aioboto3", specifier = ">=15.5.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.135.3" },
     { name = "ollama", specifier = ">=0.6.1" },
-    { name = "scyllapy", specifier = ">=1.3.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -1239,28 +1237,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/62/74/8d69dcb7a9efe8baa2046891735e5dfe433ad558ae23d9e3c14c633d1d58/s3transfer-0.14.0.tar.gz", hash = "sha256:eff12264e7c8b4985074ccce27a3b38a485bb7f7422cc8046fee9be4983e4125", size = 151547, upload-time = "2025-09-09T19:23:31.089Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl", hash = "sha256:ea3b790c7077558ed1f02a3072fb3cb992bbbd253392f4b6e9e8976941c7d456", size = 85712, upload-time = "2025-09-09T19:23:30.041Z" },
-]
-
-[[package]]
-name = "scyllapy"
-version = "1.3.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-dateutil" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b7/a3/5d52649957558319716f7038389c847ff38a189ced1963bd7c560393b30f/scyllapy-1.3.3.tar.gz", hash = "sha256:652a130c845757b24a865c1a219de8b025a568b6ca989a0630d22f265bbc7d0c", size = 58773, upload-time = "2024-11-05T18:56:47.133Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6b/c3/15bb6285b5d95ab2d8c62240eb7f70791f9b3f767c4f6abe93e82cf08eab/scyllapy-1.3.3-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2de87f6c96ed2d3e272031e0814b3bb82bcec20efd649c616a2b385d0d906930", size = 2878883, upload-time = "2024-11-05T18:56:28.839Z" },
-    { url = "https://files.pythonhosted.org/packages/de/2c/2a2bc351f0681009394a901925df0026d117ca9f9d3dfb5d4ca60369c0f2/scyllapy-1.3.3-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:7a0ffb592d07ab834ee1c5403aad0b982bf3717133b05ee34c289cf13e7fec4b", size = 3102184, upload-time = "2024-11-05T18:56:31.03Z" },
-    { url = "https://files.pythonhosted.org/packages/3e/75/83e03aaa6967e1b3b351dcd6aeb48fc2de9c4436955b984a851d826b59f7/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:910f66f1e8782aa27c459b1b0c7713c504b2c6c8862f367c3476182582844b08", size = 3381044, upload-time = "2024-11-05T18:56:32.489Z" },
-    { url = "https://files.pythonhosted.org/packages/d0/b9/0e666a8dfa786e0ef87f32eb6e56890985053e54a51a25ea09364d70ec87/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:579e4a8805b6bb3f02af6201589e434b93c685efccfaf4e215d92c8fa41c1d2b", size = 2826038, upload-time = "2024-11-05T18:56:33.882Z" },
-    { url = "https://files.pythonhosted.org/packages/5e/d4/36f977aa75acf804373efc19b36967dc43a30e33fa69bc87b4a123614753/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:7e0333f865213d16e54eeac87d522a1593cc438aac5c54ea79736a36c8c6e3e7", size = 3213283, upload-time = "2024-11-05T18:56:35.86Z" },
-    { url = "https://files.pythonhosted.org/packages/41/67/51e44c34dd6f48abc822a6dde7aae313d459158dba8212f09ca0163544d5/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:fcd023cbbcc01168f226170873dc75b676861927c51eb0d3d55af196bbe8c6ba", size = 3094842, upload-time = "2024-11-05T18:56:37.39Z" },
-    { url = "https://files.pythonhosted.org/packages/73/e2/a3dd5bd274d0f283212bcdbd566be04d7ed682a06a731f3a6220872cee47/scyllapy-1.3.3-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:685712d9c11ea2dc84ef94a5702dfebf32f6197064d39cb81ba1bc307b4a0ba9", size = 3259384, upload-time = "2024-11-05T18:56:38.762Z" },
-    { url = "https://files.pythonhosted.org/packages/58/99/1f8c410c7ab71fd6fc37c7bd55a5909892ae38cade376b1bfd8ab2dbf707/scyllapy-1.3.3-cp38-abi3-musllinux_1_2_i686.whl", hash = "sha256:574c58b221e61b9cb6421f729bb353be6e2f4bfb77ff6a738c00d4c755f479cf", size = 3313266, upload-time = "2024-11-05T18:56:40.959Z" },
-    { url = "https://files.pythonhosted.org/packages/63/68/6bce59f07395c7d21810058827e2c1ae4c37f7e8f88832579d03f47beb16/scyllapy-1.3.3-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:1da4ba5417f565c5e8fd585b34c14c7631c2339406acfa38fd6845567a7fbb16", size = 3383160, upload-time = "2024-11-05T18:56:42.871Z" },
-    { url = "https://files.pythonhosted.org/packages/72/46/91bd20d8bcbbf6007288e246d887c37090e36cd57da2c84db02f4b8f7338/scyllapy-1.3.3-cp38-abi3-win32.whl", hash = "sha256:6683e83d13ae285b82be265431d21d7b19e44848b574d8d07b5cf0aa3cfa1228", size = 2230595, upload-time = "2024-11-05T18:56:44.468Z" },
-    { url = "https://files.pythonhosted.org/packages/62/6d/48a3499c2c242baa2b6f028cecd997794637cf4d1e7ebd3adfd160b7f7dd/scyllapy-1.3.3-cp38-abi3-win_amd64.whl", hash = "sha256:e75d46bcf0de911b15e91af2bd325ab75f663c4f1a7e57fe78a9f64ddee697e0", size = 2478212, upload-time = "2024-11-05T18:56:45.757Z" },
 ]
 
 [[package]]

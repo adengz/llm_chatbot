@@ -1,21 +1,6 @@
 services:
-  scylla:
-    image: scylladb/scylla:latest
-    container_name: scylla
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
     ports:
-      - "9042:9042"
-    healthcheck:
-      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 15s
-
-  scylla-init:
-    image: scylladb/scylla:latest
-    depends_on:
-      scylla:
-        condition: service_healthy
-    volumes:
-      - ./init_keyspace.cql:/init_keyspace.cql
-    entrypoint: ["/bin/bash", "-c", "cqlsh scylla -f /init_keyspace.cql"]
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb"

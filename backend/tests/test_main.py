@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from api.domain.models import AgentStreamChunk, Conversation, Message
-from api.infra.exceptions import DatabaseException
+from api.infra.db import DatabaseException
 from api.main import DBClient, LLMClient, app, get_db, get_disconnect_checker, get_llm
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, create_model

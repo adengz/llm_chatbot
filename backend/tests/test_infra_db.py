@@ -7,9 +7,8 @@ from typing import AsyncGenerator, Protocol
 import pytest
 import pytest_asyncio
 from api.domain.models import Message
-from api.infra.db import DynamoDBClient, ScyllapyClient
+from api.infra.db import DynamoDBClient
 from api.main import DBClient
-from scyllapy import Batch, extra_types
 
 
 class DBHarness(Protocol):
@@ -42,106 +41,6 @@ class DBHarness(Protocol):
 class DBTestKit:
     client: DBClient
     harness: DBHarness
-
-
-class ScyllapyHarness:
-    def __init__(self, client: ScyllapyClient):
-        self.client = client
-
-    async def create_tables(self) -> None:
-        cqls = [
-            """
-            CREATE TABLE IF NOT EXISTS conversations (
-                user_id bigint,
-                conversation_id uuid,
-                title text,
-                PRIMARY KEY (user_id, conversation_id)
-            ) WITH CLUSTERING ORDER BY (conversation_id DESC)
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS messages (
-                conversation_id uuid,
-                created_at timestamp,
-                role text,
-                type text,
-                content text,
-                PRIMARY KEY (conversation_id, created_at)
-            ) WITH CLUSTERING ORDER BY (created_at DESC)
-            """,
-            "CREATE INDEX IF NOT EXISTS messages_type_idx ON chatbot.messages (type)",
-        ]
-        for cql in cqls:
-            await self.client.scylla.execute(cql)
-
-    async def drop_tables(self) -> None:
-        cqls = ["DROP TABLE conversations", "DROP TABLE messages"]
-        for cql in cqls:
-            await self.client.scylla.execute(cql)
-
-    async def truncate_tables(self) -> None:
-        cqls = ["TRUNCATE conversations", "TRUNCATE messages"]
-        for cql in cqls:
-            await self.client.scylla.execute(cql)
-
-    async def insert_conversation(self, user_id: int = 0, title: str = "") -> uuid.UUID:
-        conversation_id = uuid.uuid1()
-        await self.client.scylla.execute(
-            "INSERT INTO conversations (user_id, conversation_id, title) VALUES (?, ?, ?)",
-            [extra_types.BigInt(user_id), conversation_id, title],
-        )
-        return conversation_id
-
-    async def fetch_conversation_title(
-        self, user_id: int, conversation_id: uuid.UUID
-    ) -> str | None:
-        rows = await self.client.scylla.execute(
-            "SELECT title FROM conversations WHERE user_id = ? AND conversation_id = ?",
-            [extra_types.BigInt(user_id), conversation_id],
-        )
-        row = rows.first()
-        return row["title"] if row else None
-
-    async def count_conversations(self, user_id: int) -> int:
-        rows = await self.client.scylla.execute(
-            "SELECT COUNT(1) AS count FROM conversations WHERE user_id = ?",
-            [extra_types.BigInt(user_id)],
-        )
-        row = rows.first()
-        return row["count"] if row else 0
-
-    async def count_messages(self, conversation_id: uuid.UUID) -> int:
-        rows = await self.client.scylla.execute(
-            "SELECT COUNT(1) AS count FROM messages WHERE conversation_id = ?",
-            [conversation_id],
-        )
-        row = rows.first()
-        return row["count"] if row else 0
-
-    async def insert_messages(self, messages: list[Message]) -> None:
-        batch = Batch()
-        for _ in range(len(messages)):
-            batch.add_query(
-                "INSERT INTO messages (conversation_id, created_at, role, type, content) VALUES (?, ?, ?, ?, ?)",
-            )
-        await self.client.scylla.batch(
-            batch,
-            [
-                [m.conversation_id, m.created_at, m.role, m.type, m.content]
-                for m in messages
-            ],
-        )
-
-    async def fetch_message_record(
-        self, conversation_id: uuid.UUID, created_at: datetime
-    ) -> tuple[str, str] | None:
-        rows = await self.client.scylla.execute(
-            "SELECT role, content FROM messages WHERE conversation_id = ? AND created_at = ?",
-            [conversation_id, created_at],
-        )
-        row = rows.first()
-        if row is None:
-            return None
-        return row["role"], row["content"]
 
 
 class DynamoDBHarness:
@@ -286,13 +185,6 @@ class DynamoDBHarness:
         if item is None:
             return None
         return str(item["role"]), str(item["content"])
-
-
-@pytest_asyncio.fixture(scope="class")
-async def scyllapy_testkit() -> AsyncGenerator[DBTestKit, None]:
-    client = await ScyllapyClient.create(["localhost:9042"], "chatbot")
-    yield DBTestKit(client=client, harness=ScyllapyHarness(client))
-    await client.close()
 
 
 @pytest_asyncio.fixture(scope="class")
@@ -486,12 +378,6 @@ class DBClientContract:
         assert [m.content for m in messages] == ["2", "1+1=?"]
         assert [m.role for m in messages] == ["assistant", "user"]
         assert all([m.type == "content" for m in messages])
-
-
-class TestScyllapyClient(DBClientContract):
-    @pytest_asyncio.fixture(scope="class")
-    async def db_testkit(self, scyllapy_testkit: DBTestKit) -> DBTestKit:
-        return scyllapy_testkit
 
 
 class TestDynamoDBClient(DBClientContract):
