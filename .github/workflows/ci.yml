@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      AWS_ACCESS_KEY_ID: NotAnAccessKeyId
+      AWS_SECRET_ACCESS_KEY: not+a+secret+access+key
+      AWS_ENDPOINT_URL: http://localhost:8000
       OLLAMA_TEST_MODEL: qwen3:0.6b
     defaults:
       run:
@@ -20,7 +23,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Start database
-      run: docker compose up -d --wait
+      run: docker compose up -d
 
     - name: Set up Python
       uses: actions/setup-python@v5

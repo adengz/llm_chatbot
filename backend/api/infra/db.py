@@ -1,108 +1,194 @@
-import uuid
 import datetime
-from typing import Self, Any
+import uuid
+from contextlib import asynccontextmanager
+from typing import Literal, cast
 
-from pydantic import UUID1
-from scyllapy import Scylla, PreparedQuery, QueryResult, extra_types
+import aioboto3
+from boto3.dynamodb.conditions import Key
 
-from api.infra.exceptions import DatabaseException
 from api.domain.models import Conversation, Message
 
 
-class ScyllapyClient:
+class DatabaseException(Exception):
+    pass
 
-    def __init__(self, scylla: Scylla):
-        self.scylla = scylla
-        self._prepared_statements = {}
 
-    @classmethod
-    async def create(cls, contact_points: list[str], keyspace: str | None = None) -> Self:
-        scylla = Scylla(contact_points, keyspace=keyspace)
-        await scylla.startup()
-        return cls(scylla)
+class DynamoDBClient:
+    def __init__(
+        self,
+        region_name: str,
+        endpoint_url: str | None = None,
+        conversations_table: str = "conversations",
+        messages_table: str = "messages",
+    ):
+        self.session = aioboto3.Session()
+        self._region_name = region_name
+        self._aws_endpoint_url = endpoint_url
+        self._conversations_table = conversations_table
+        self._messages_table = messages_table
 
-    async def close(self) -> None:
-        await self.scylla.shutdown()
-
-    async def _prepare(self, query: str) -> PreparedQuery:
-        prepared = self._prepared_statements.get(query)
-        if prepared is None:
-            prepared = await self.scylla.prepare(query)
-            self._prepared_statements[query] = prepared
-        return prepared
-
-    async def _execute_prepared(self, query: str, parameters: list[Any]) -> QueryResult:
+    @asynccontextmanager
+    async def get_resource(self):
         try:
-            prepared = await self._prepare(query)
-            return await self.scylla.execute(prepared, parameters)
-        except Exception as exc:
-            raise DatabaseException('Database operation failed') from exc
+            async with self.session.resource(
+                "dynamodb",
+                endpoint_url=self._aws_endpoint_url,
+                region_name=self._region_name,
+            ) as resource:
+                yield resource
+        except Exception as e:
+            raise DatabaseException("Failed to get DynamoDB resource") from e
 
-    async def create_conversation(self, user_id: int, title: str) -> UUID1:
-        conversation_id = uuid.uuid1()
-        await self._execute_prepared(
-            'INSERT INTO conversations (user_id, conversation_id, title) VALUES (?, ?, ?)',
-            [extra_types.BigInt(user_id), conversation_id, title],
-        )
+    async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
+        conversation_id = uuid.uuid7()
+        item = {
+            "user_id": user_id,
+            "conversation_id": str(conversation_id),
+            "title": title,
+        }
+        async with self.get_resource() as resource:
+            table = await resource.Table(self._conversations_table)
+            await table.put_item(Item=item)
         return conversation_id
 
-    async def rename_conversation(self, user_id: int, conversation_id: UUID1, new_title: str) -> None:
-        await self._execute_prepared(
-            'UPDATE conversations SET title = ? WHERE user_id = ? AND conversation_id = ?',
-            [new_title, extra_types.BigInt(user_id), conversation_id],
-        )
+    async def rename_conversation(
+        self, user_id: int, conversation_id: uuid.UUID, new_title: str
+    ) -> None:
+        async with self.get_resource() as resource:
+            table = await resource.Table(self._conversations_table)
+            await table.update_item(
+                Key={"user_id": user_id, "conversation_id": str(conversation_id)},
+                UpdateExpression="SET #title = :new_title",
+                ExpressionAttributeNames={"#title": "title"},
+                ExpressionAttributeValues={":new_title": new_title},
+            )
 
-    async def delete_conversation(self, user_id: int, conversation_id: UUID1) -> None:
-        await self._execute_prepared(
-            'DELETE FROM messages WHERE conversation_id = ?',
-            [conversation_id],
-        )
-        await self._execute_prepared(
-            'DELETE FROM conversations WHERE user_id = ? AND conversation_id = ?',
-            [extra_types.BigInt(user_id), conversation_id],
-        )
+    async def delete_conversation(
+        self, user_id: int, conversation_id: uuid.UUID
+    ) -> None:
+        query_params = {
+            "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id)),
+        }
+        keys = await self._list_items(self._messages_table, query_params)
+        async with self.get_resource() as resource:
+            table = await resource.Table(self._messages_table)
+            async with table.batch_writer() as batch:
+                for key in keys:
+                    await batch.delete_item(
+                        Key={
+                            "conversation_id": key["conversation_id"],
+                            "created_at": key["created_at"],
+                        }
+                    )
+
+            table = await resource.Table(self._conversations_table)
+            await table.delete_item(
+                Key={"user_id": user_id, "conversation_id": str(conversation_id)},
+            )
 
     async def list_conversations(self, user_id: int) -> list[Conversation]:
-        result = await self._execute_prepared(
-            'SELECT conversation_id, title FROM conversations WHERE user_id = ?',
-            [extra_types.BigInt(user_id)],
-        )
+        query_params = {
+            "KeyConditionExpression": Key("user_id").eq(user_id),
+            "ScanIndexForward": False,
+        }
+        items = await self._list_items(self._conversations_table, query_params)
         return [
             Conversation(
                 user_id=user_id,
-                conversation_id=row['conversation_id'],
-                title=row['title'],
+                conversation_id=uuid.UUID(item["conversation_id"]),
+                title=item["title"],
             )
-            for row in result.all()
+            for item in items
         ]
 
     async def create_message(self, message: Message) -> None:
-        await self._execute_prepared(
-            'INSERT INTO messages (conversation_id, created_at, role, type, content) VALUES (?, ?, ?, ?, ?)',
-            [message.conversation_id, message.created_at, message.role, message.type, message.content],
-        )
+        item = {
+            "conversation_id": str(message.conversation_id),
+            "created_at": message.created_at.isoformat(),
+            "role": message.role,
+            "type": message.type,
+            "content": message.content,
+        }
+        async with self.get_resource() as resource:
+            table = await resource.Table(self._messages_table)
+            await table.put_item(Item=item)
 
-    async def list_messages(self, conversation_id: UUID1, cursor: datetime.datetime, limit: int = 2, 
-                            content_only: bool = False) -> list[Message]:
-        wheres = ['conversation_id = ?', 'created_at < ?']
-        parameters = [conversation_id, cursor]
-        if content_only:
-            wheres.append('type = ?')
-            parameters.append('content')
-        parameters.append(limit)
+    async def scroll_messages(
+        self,
+        conversation_id: uuid.UUID,
+        cursor: datetime.datetime,
+        limit: int = 100,
+    ) -> list[Message]:
+        query_params = {
+            "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id))
+            & Key("created_at").lt(cursor.isoformat()),
+            "ScanIndexForward": False,
+            "Limit": limit,
+        }
+        items = await self._list_items(self._messages_table, query_params)
+        return self._pack_messages(items)
 
-        result = await self._execute_prepared(
-            f'SELECT created_at, role, type, content FROM messages WHERE {" AND ".join(wheres)} LIMIT ?',
-            parameters,
-        )
+    async def load_historical_contents(
+        self, conversation_id: uuid.UUID
+    ) -> list[Message]:
+        query_params = {
+            "IndexName": "type-created_at-idx",
+            "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id))
+            & Key("type-created_at").begins_with("content#"),
+            "ScanIndexForward": False,
+        }
+        all_keys = await self._list_items(self._messages_table, query_params)
+        offset = 0
+        all_items = []
+        async with self.get_resource() as resource:
+            while offset < len(all_keys):
+                keys = all_keys[offset : offset + 100]
+                response = await resource.batch_get_item(
+                    RequestItems={
+                        "messages": {
+                            "Keys": [
+                                {
+                                    "conversation_id": key["conversation_id"],
+                                    "created_at": key["created_at"],
+                                }
+                                for key in keys
+                            ]
+                        }
+                    }
+                )
+                all_items.extend(response.get("Responses", {}).get("messages", []))
+                offset += 100
+
+        return self._pack_messages(all_items)
+
+    async def _list_items(self, table_name: str, query_params: dict) -> list[dict]:
+        all_items = []
+        limit = query_params.get("Limit", 0)
+        async with self.get_resource() as resource:
+            table = await resource.Table(table_name)
+            while True:
+                response = await table.query(**query_params)
+                all_items.extend(response.get("Items", []))
+                last_evaluated_key = response.get("LastEvaluatedKey")
+                if not last_evaluated_key or (limit and len(all_items) >= limit):
+                    break
+                query_params["ExclusiveStartKey"] = last_evaluated_key
+        if limit:
+            all_items = all_items[:limit]
+        return all_items
+
+    @staticmethod
+    def _pack_messages(items: list[dict]) -> list[Message]:
         return [
             Message(
-                conversation_id=conversation_id,
-                created_at=row['created_at'],
-                role=row['role'],
-                type=row['type'],
-                content=row['content'],
+                conversation_id=uuid.UUID(item["conversation_id"]),
+                created_at=datetime.datetime.fromisoformat(item["created_at"]),
+                role=cast(Literal["user", "assistant"], item["role"]),
+                type=cast(
+                    Literal["tool_call_req", "tool_call_resp", "thinking", "content"],
+                    item["type"],
+                ),
+                content=item["content"],
             )
-            for row in result.all()
+            for item in items
         ]
-        
