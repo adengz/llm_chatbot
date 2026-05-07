@@ -14,16 +14,26 @@ class DatabaseException(Exception):
 
 
 class DynamoDBClient:
-    def __init__(self, use_local: bool = False):
+    def __init__(
+        self,
+        region_name: str,
+        endpoint_url: str | None = None,
+        conversations_table: str = "conversations",
+        messages_table: str = "messages",
+    ):
         self.session = aioboto3.Session()
-        self.use_local = use_local
+        self._region_name = region_name
+        self._aws_endpoint_url = endpoint_url
+        self._conversations_table = conversations_table
+        self._messages_table = messages_table
 
     @asynccontextmanager
     async def get_resource(self):
-        endpoint_url = "http://localhost:8000" if self.use_local else None
         try:
             async with self.session.resource(
-                "dynamodb", endpoint_url=endpoint_url
+                "dynamodb",
+                endpoint_url=self._aws_endpoint_url,
+                region_name=self._region_name,
             ) as resource:
                 yield resource
         except Exception as e:
@@ -37,7 +47,7 @@ class DynamoDBClient:
             "title": title,
         }
         async with self.get_resource() as resource:
-            table = await resource.Table("conversations")
+            table = await resource.Table(self._conversations_table)
             await table.put_item(Item=item)
         return conversation_id
 
@@ -45,7 +55,7 @@ class DynamoDBClient:
         self, user_id: int, conversation_id: uuid.UUID, new_title: str
     ) -> None:
         async with self.get_resource() as resource:
-            table = await resource.Table("conversations")
+            table = await resource.Table(self._conversations_table)
             await table.update_item(
                 Key={"user_id": user_id, "conversation_id": str(conversation_id)},
                 UpdateExpression="SET #title = :new_title",
@@ -59,9 +69,9 @@ class DynamoDBClient:
         query_params = {
             "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id)),
         }
-        keys = await self._list_items("messages", query_params)
+        keys = await self._list_items(self._messages_table, query_params)
         async with self.get_resource() as resource:
-            table = await resource.Table("messages")
+            table = await resource.Table(self._messages_table)
             async with table.batch_writer() as batch:
                 for key in keys:
                     await batch.delete_item(
@@ -71,7 +81,7 @@ class DynamoDBClient:
                         }
                     )
 
-            table = await resource.Table("conversations")
+            table = await resource.Table(self._conversations_table)
             await table.delete_item(
                 Key={"user_id": user_id, "conversation_id": str(conversation_id)},
             )
@@ -81,7 +91,7 @@ class DynamoDBClient:
             "KeyConditionExpression": Key("user_id").eq(user_id),
             "ScanIndexForward": False,
         }
-        items = await self._list_items("conversations", query_params)
+        items = await self._list_items(self._conversations_table, query_params)
         return [
             Conversation(
                 user_id=user_id,
@@ -100,7 +110,7 @@ class DynamoDBClient:
             "content": message.content,
         }
         async with self.get_resource() as resource:
-            table = await resource.Table("messages")
+            table = await resource.Table(self._messages_table)
             await table.put_item(Item=item)
 
     async def scroll_messages(
@@ -115,7 +125,7 @@ class DynamoDBClient:
             "ScanIndexForward": False,
             "Limit": limit,
         }
-        items = await self._list_items("messages", query_params)
+        items = await self._list_items(self._messages_table, query_params)
         return self._pack_messages(items)
 
     async def load_historical_contents(
@@ -127,7 +137,7 @@ class DynamoDBClient:
             & Key("type-created_at").begins_with("content#"),
             "ScanIndexForward": False,
         }
-        all_keys = await self._list_items("messages", query_params)
+        all_keys = await self._list_items(self._messages_table, query_params)
         offset = 0
         all_items = []
         async with self.get_resource() as resource:

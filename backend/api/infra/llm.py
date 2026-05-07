@@ -1,4 +1,3 @@
-import os
 from collections import deque
 from typing import AsyncGenerator
 
@@ -6,17 +5,15 @@ from ollama import AsyncClient, ResponseError, web_fetch, web_search
 
 from api.domain.models import AgentStreamChunk, Message
 
-OLLAMA_LOCAL_HOST = "http://localhost:11434"
-OLLAMA_CLOUD_HOST = "https://ollama.com"
-
 
 class AsyncOllamaClient:
-    def __init__(self, use_cloud: bool = False):
+    def __init__(self, api_key: str | None = None, use_cloud: bool = False):
         if use_cloud:
-            OLLAMA_API_KEY = os.environ["OLLAMA_API_KEY"]
+            if not api_key:
+                raise ValueError("API key is required for Ollama Cloud")
             self.client = AsyncClient(
-                host=OLLAMA_CLOUD_HOST,
-                headers={"Authorization": "Bearer " + OLLAMA_API_KEY},
+                host="https://ollama.com",
+                headers={"Authorization": "Bearer " + api_key},
             )
         else:
             self.client = AsyncClient()

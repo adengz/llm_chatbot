@@ -49,13 +49,23 @@ def get_user_id() -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from api.config import get_settings
     from api.infra.db import DynamoDBClient
-
-    db_client = DynamoDBClient()
-    app.state.db_client = db_client
     from api.infra.llm import AsyncOllamaClient
 
-    app.state.llm_client = AsyncOllamaClient(use_cloud=True)
+    settings = get_settings()
+    db_client: DBClient = DynamoDBClient(
+        region_name=settings.aws_region,
+        endpoint_url=settings.aws_endpoint_url,
+        conversations_table=settings.dynamodb_conversations_table,
+        messages_table=settings.dynamodb_messages_table,
+    )
+    llm_client: LLMClient = AsyncOllamaClient(
+        api_key=settings.ollama_api_key, use_cloud=True
+    )
+
+    app.state.db_client = db_client
+    app.state.llm_client = llm_client
     yield
 
 

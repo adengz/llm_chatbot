@@ -1,13 +1,13 @@
-import os
 from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from api.config import get_settings
 from api.domain.models import Message
 from api.infra.llm import AsyncOllamaClient
 from pydantic import create_model
 
-OLLAMA_TEST_MODEL = os.getenv("OLLAMA_TEST_MODEL", "qwen3:0.6b")
+OLLAMA_TEST_MODEL = get_settings().ollama_test_model
 
 SIMPLE_PROPMT = "Reply with exactly one short word."
 WEB_ACCESS_PROMPT = "Current price of Bitcoin in USD?"

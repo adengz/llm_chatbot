@@ -6,6 +6,7 @@ from typing import AsyncGenerator, Protocol
 
 import pytest
 import pytest_asyncio
+from api.config import get_settings
 from api.domain.models import Message
 from api.infra.db import DynamoDBClient
 from api.main import DBClient
@@ -50,7 +51,7 @@ class DynamoDBHarness:
     async def _create_conversations_table(self) -> None:
         async with self.client.get_resource() as resource:
             table = await resource.create_table(
-                TableName="conversations",
+                TableName=self.client._conversations_table,
                 KeySchema=[
                     {"AttributeName": "user_id", "KeyType": "HASH"},
                     {"AttributeName": "conversation_id", "KeyType": "RANGE"},
@@ -66,7 +67,7 @@ class DynamoDBHarness:
     async def _create_messages_table(self) -> None:
         async with self.client.get_resource() as resource:
             table = await resource.create_table(
-                TableName="messages",
+                TableName=self.client._messages_table,
                 KeySchema=[
                     {"AttributeName": "conversation_id", "KeyType": "HASH"},
                     {"AttributeName": "created_at", "KeyType": "RANGE"},
@@ -98,7 +99,10 @@ class DynamoDBHarness:
 
     async def drop_tables(self) -> None:
         async with self.client.get_resource() as resource:
-            for table_name in ["conversations", "messages"]:
+            for table_name in [
+                self.client._conversations_table,
+                self.client._messages_table,
+            ]:
                 table = await resource.Table(table_name)
                 await table.delete()
                 await table.wait_until_not_exists()
@@ -115,7 +119,7 @@ class DynamoDBHarness:
             "title": title,
         }
         async with self.client.get_resource() as resource:
-            table = await resource.Table("conversations")
+            table = await resource.Table(self.client._conversations_table)
             await table.put_item(Item=item)
         return conversation_id
 
@@ -123,7 +127,7 @@ class DynamoDBHarness:
         self, user_id: int, conversation_id: uuid.UUID
     ) -> str | None:
         async with self.client.get_resource() as resource:
-            table = await resource.Table("conversations")
+            table = await resource.Table(self.client._conversations_table)
             response = await table.get_item(
                 Key={"user_id": user_id, "conversation_id": str(conversation_id)},
                 ProjectionExpression="#title",
@@ -134,7 +138,7 @@ class DynamoDBHarness:
 
     async def count_conversations(self, user_id: int) -> int:
         async with self.client.get_resource() as resource:
-            table = await resource.Table("conversations")
+            table = await resource.Table(self.client._conversations_table)
             response = await table.query(
                 KeyConditionExpression="#user_id = :user_id",
                 ExpressionAttributeNames={"#user_id": "user_id"},
@@ -145,7 +149,7 @@ class DynamoDBHarness:
 
     async def count_messages(self, conversation_id: uuid.UUID) -> int:
         async with self.client.get_resource() as resource:
-            table = await resource.Table("messages")
+            table = await resource.Table(self.client._messages_table)
             response = await table.query(
                 KeyConditionExpression="#conversation_id = :conversation_id",
                 ExpressionAttributeNames={"#conversation_id": "conversation_id"},
@@ -156,7 +160,7 @@ class DynamoDBHarness:
 
     async def insert_messages(self, messages: list[Message]) -> None:
         async with self.client.get_resource() as resource:
-            table = await resource.Table("messages")
+            table = await resource.Table(self.client._messages_table)
             for message in messages:
                 item = {
                     "conversation_id": str(message.conversation_id),
@@ -172,7 +176,7 @@ class DynamoDBHarness:
         self, conversation_id: uuid.UUID, created_at: datetime
     ) -> tuple[str, str] | None:
         async with self.client.get_resource() as resource:
-            table = await resource.Table("messages")
+            table = await resource.Table(self.client._messages_table)
             response = await table.get_item(
                 Key={
                     "conversation_id": str(conversation_id),
@@ -189,7 +193,11 @@ class DynamoDBHarness:
 
 @pytest_asyncio.fixture(scope="class")
 async def dynamodb_testkit() -> AsyncGenerator[DBTestKit, None]:
-    client = DynamoDBClient(use_local=True)
+    settings = get_settings()
+    client = DynamoDBClient(
+        region_name=settings.aws_region,
+        endpoint_url=settings.aws_endpoint_url,
+    )
     yield DBTestKit(client=client, harness=DynamoDBHarness(client))
 
 

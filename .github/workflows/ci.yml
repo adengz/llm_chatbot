@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      AWS_ENDPOINT_URL: http://localhost:8000
       OLLAMA_TEST_MODEL: qwen3:0.6b
     defaults:
       run:
