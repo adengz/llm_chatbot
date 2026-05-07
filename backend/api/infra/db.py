@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal, Self, cast
 
 import aioboto3
+from boto3.dynamodb.conditions import Key
 from scyllapy import PreparedQuery, QueryResult, Scylla, extra_types
 
 from api.domain.models import Conversation, Message
@@ -94,23 +95,33 @@ class ScyllapyClient:
             ],
         )
 
-    async def list_messages(
+    async def scroll_messages(
         self,
         conversation_id: uuid.UUID,
         cursor: datetime.datetime,
-        limit: int = 2,
-        content_only: bool = False,
+        limit: int = 100,
     ) -> list[Message]:
-        wheres = ["conversation_id = ?", "created_at < ?"]
-        parameters = [conversation_id, cursor]
-        if content_only:
-            wheres.append("type = ?")
-            parameters.append("content")
-        parameters.append(limit)
-
         result = await self._execute_prepared(
-            f"SELECT created_at, role, type, content FROM messages WHERE {' AND '.join(wheres)} LIMIT ?",
-            parameters,
+            "SELECT created_at, role, type, content FROM messages WHERE conversation_id = ? AND created_at < ? LIMIT ?",
+            [conversation_id, cursor, limit],
+        )
+        return [
+            Message(
+                conversation_id=conversation_id,
+                created_at=row["created_at"],
+                role=row["role"],
+                type=row["type"],
+                content=row["content"],
+            )
+            for row in result.all()
+        ]
+
+    async def load_historical_contents(
+        self, conversation_id: uuid.UUID
+    ) -> list[Message]:
+        result = await self._execute_prepared(
+            "SELECT created_at, role, type, content FROM messages WHERE conversation_id = ? AND type = ?",
+            [conversation_id, "content"],
         )
         return [
             Message(
@@ -165,25 +176,17 @@ class DynamoDBClient:
         self, user_id: int, conversation_id: uuid.UUID
     ) -> None:
         query_params = {
-            "KeyConditionExpression": "#conversation_id = :conversation_id",
-            "ProjectionExpression": "#conversation_id, #created_at",
-            "ExpressionAttributeNames": {
-                "#conversation_id": "conversation_id",
-                "#created_at": "created_at",
-            },
-            "ExpressionAttributeValues": {
-                ":conversation_id": str(conversation_id),
-            },
+            "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id)),
         }
-        items = await self._list_items("messages", query_params)
+        keys = await self._list_items("messages", query_params)
         async with self.get_resource() as resource:
             table = await resource.Table("messages")
             async with table.batch_writer() as batch:
-                for item in items:
+                for key in keys:
                     await batch.delete_item(
                         Key={
-                            "conversation_id": item["conversation_id"],
-                            "created_at": item["created_at"],
+                            "conversation_id": key["conversation_id"],
+                            "created_at": key["created_at"],
                         }
                     )
 
@@ -194,9 +197,7 @@ class DynamoDBClient:
 
     async def list_conversations(self, user_id: int) -> list[Conversation]:
         query_params = {
-            "KeyConditionExpression": "#user_id = :user_id",
-            "ExpressionAttributeNames": {"#user_id": "user_id"},
-            "ExpressionAttributeValues": {":user_id": user_id},
+            "KeyConditionExpression": Key("user_id").eq(user_id),
             "ScanIndexForward": False,
         }
         items = await self._list_items("conversations", query_params)
@@ -221,52 +222,53 @@ class DynamoDBClient:
             table = await resource.Table("messages")
             await table.put_item(Item=item)
 
-    async def list_messages(
+    async def scroll_messages(
         self,
         conversation_id: uuid.UUID,
         cursor: datetime.datetime,
-        limit: int = 2,
-        content_only: bool = False,
+        limit: int = 100,
     ) -> list[Message]:
         query_params = {
+            "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id))
+            & Key("created_at").lt(cursor.isoformat()),
             "ScanIndexForward": False,
             "Limit": limit,
-            "KeyConditionExpression": "#conversation_id = :conversation_id",
-            "ExpressionAttributeNames": {"#conversation_id": "conversation_id"},
-            "ExpressionAttributeValues": {":conversation_id": str(conversation_id)},
         }
-        if content_only:
-            query_params["IndexName"] = "type-created_at-idx"
-            query_params["KeyConditionExpression"] += (
-                " AND #type_created_at BETWEEN :start AND :end"
-            )
-            query_params["ExpressionAttributeNames"]["#type_created_at"] = (
-                "type-created_at"
-            )
-            query_params["ExpressionAttributeValues"][":start"] = "content#"
-            query_params["ExpressionAttributeValues"][":end"] = (
-                "content#" + cursor.isoformat()
-            )
-        else:
-            query_params["KeyConditionExpression"] += " AND #created_at < :cursor"
-            query_params["ExpressionAttributeNames"]["#created_at"] = "created_at"
-            query_params["ExpressionAttributeValues"][":cursor"] = cursor.isoformat()
-
         items = await self._list_items("messages", query_params)
-        print(items)
-        return [
-            Message(
-                conversation_id=conversation_id,
-                created_at=datetime.datetime.fromisoformat(item["created_at"]),
-                role=cast(Literal["user", "assistant"], item["role"]),
-                type=cast(
-                    Literal["tool_call_req", "tool_call_resp", "thinking", "content"],
-                    item["type"],
-                ),
-                content=item["content"],
-            )
-            for item in items
-        ]
+        return self._pack_messages(items)
+
+    async def load_historical_contents(
+        self, conversation_id: uuid.UUID
+    ) -> list[Message]:
+        query_params = {
+            "IndexName": "type-created_at-idx",
+            "KeyConditionExpression": Key("conversation_id").eq(str(conversation_id))
+            & Key("type-created_at").begins_with("content#"),
+            "ScanIndexForward": False,
+        }
+        all_keys = await self._list_items("messages", query_params)
+        offset = 0
+        all_items = []
+        async with self.get_resource() as resource:
+            while offset < len(all_keys):
+                keys = all_keys[offset : offset + 100]
+                response = await resource.batch_get_item(
+                    RequestItems={
+                        "messages": {
+                            "Keys": [
+                                {
+                                    "conversation_id": key["conversation_id"],
+                                    "created_at": key["created_at"],
+                                }
+                                for key in keys
+                            ]
+                        }
+                    }
+                )
+                all_items.extend(response.get("Responses", {}).get("messages", []))
+                offset += 100
+
+        return self._pack_messages(all_items)
 
     async def _list_items(self, table_name: str, query_params: dict) -> list[dict]:
         all_items = []
@@ -283,3 +285,19 @@ class DynamoDBClient:
         if limit:
             all_items = all_items[:limit]
         return all_items
+
+    @staticmethod
+    def _pack_messages(items: list[dict]) -> list[Message]:
+        return [
+            Message(
+                conversation_id=uuid.UUID(item["conversation_id"]),
+                created_at=datetime.datetime.fromisoformat(item["created_at"]),
+                role=cast(Literal["user", "assistant"], item["role"]),
+                type=cast(
+                    Literal["tool_call_req", "tool_call_resp", "thinking", "content"],
+                    item["type"],
+                ),
+                content=item["content"],
+            )
+            for item in items
+        ]

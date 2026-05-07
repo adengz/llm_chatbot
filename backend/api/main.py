@@ -1,6 +1,6 @@
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import AsyncGenerator, Awaitable, Callable, Protocol
 
 from fastapi import Body, Depends, FastAPI, Request
@@ -34,12 +34,12 @@ class DBClient(Protocol):
 
     async def create_message(self, message: Message) -> None: ...
 
-    async def list_messages(
-        self,
-        conversation_id: uuid.UUID,
-        cursor: datetime,
-        limit: int = 2,
-        content_only: bool = False,
+    async def scroll_messages(
+        self, conversation_id: uuid.UUID, cursor: datetime, limit: int = ...
+    ) -> list[Message]: ...
+
+    async def load_historical_contents(
+        self, conversation_id: uuid.UUID
     ) -> list[Message]: ...
 
 
@@ -84,21 +84,6 @@ def get_disconnect_checker(request: Request) -> Callable[[], Awaitable[bool]]:
         return await request.is_disconnected()
 
     return checker
-
-
-async def list_context(
-    db: DBClient, conversation_id: uuid.UUID, cursor: datetime
-) -> list[Message]:
-    messages = []
-    while True:
-        batch = await db.list_messages(
-            conversation_id=conversation_id, cursor=cursor, limit=100, content_only=True
-        )
-        if not batch:
-            break
-        messages.extend(batch)
-        cursor = batch[-1].created_at
-    return messages
 
 
 def sse_event(model):
@@ -203,8 +188,8 @@ async def create_message(
             user_id=user_id, title=message.content
         )
     else:
-        context = await list_context(
-            db=db, conversation_id=message.conversation_id, cursor=message.created_at
+        context = await db.load_historical_contents(
+            conversation_id=message.conversation_id
         )
 
     await db.create_message(message=message)
@@ -233,12 +218,12 @@ async def list_conversations(db: DBClient = Depends(get_db)) -> list[Conversatio
 async def list_messages(
     conversation_id: uuid.UUID,
     cursor: datetime | None = None,
-    limit: int = 2,
+    limit: int = 100,
     db: DBClient = Depends(get_db),
 ) -> list[Message]:
     if cursor is None:
-        cursor = datetime.now(timezone.utc)
-    return await db.list_messages(
+        cursor = datetime.now()
+    return await db.scroll_messages(
         conversation_id=conversation_id, cursor=cursor, limit=limit
     )
 

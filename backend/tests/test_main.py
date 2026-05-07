@@ -150,7 +150,7 @@ class TestAppEndpoints:
             ),
             Message(conversation_id=conv_id, role="user", content="Hello"),
         ]
-        mock_db.list_messages.side_effect = [existing_msgs, []]
+        mock_db.load_historical_contents.return_value = existing_msgs
 
         mock_tool_call_req = MockToolCallRequest(
             name="web_search",
@@ -343,7 +343,7 @@ class TestAppEndpoints:
 
         conversation_id = uuid.uuid1()
 
-        mock_db.list_messages.return_value = [
+        mock_db.scroll_messages.return_value = [
             Message(
                 conversation_id=conversation_id, role="assistant", content="Hi there!"
             ),
@@ -358,15 +358,10 @@ class TestAppEndpoints:
         assert [m["role"] for m in body] == ["assistant", "user"]
         assert [m["content"] for m in body] == ["Hi there!", "Hello"]
 
-        assert mock_db.list_messages.await_count == 1
+        assert mock_db.scroll_messages.await_count == 1
         assert (
-            mock_db.list_messages.await_args.kwargs["conversation_id"]
+            mock_db.scroll_messages.await_args.kwargs["conversation_id"]
             == conversation_id
-        )
-        assert mock_db.list_messages.await_args.kwargs["limit"] == 2
-        assert mock_db.list_messages.await_args.kwargs["cursor"] is not None
-        assert (
-            mock_db.list_messages.await_args.kwargs.get("content_only", False) is False
         )
 
     def test_delete_conversation(self, api_ut_toolkit):
