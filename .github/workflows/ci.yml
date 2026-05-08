@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      AWS_DEFAULT_REGION: not-on-earth
       AWS_ACCESS_KEY_ID: NotAnAccessKeyId
       AWS_SECRET_ACCESS_KEY: not+a+secret+access+key
       AWS_ENDPOINT_URL: http://localhost:8000

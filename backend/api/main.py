@@ -55,7 +55,6 @@ async def lifespan(app: FastAPI):
 
     settings = get_settings()
     db_client: DBClient = DynamoDBClient(
-        region_name=settings.aws_region,
         endpoint_url=settings.aws_endpoint_url,
         conversations_table=settings.dynamodb_conversations_table,
         messages_table=settings.dynamodb_messages_table,

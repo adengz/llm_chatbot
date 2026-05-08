@@ -84,9 +84,7 @@ class DynamoDBHarness:
                             {"AttributeName": "conversation_id", "KeyType": "HASH"},
                             {"AttributeName": "type-created_at", "KeyType": "RANGE"},
                         ],
-                        "Projection": {
-                            "ProjectionType": "ALL"
-                        },  # TODO: Use KEYS_ONLY and fetch content in application layer to reduce RCU consumption
+                        "Projection": {"ProjectionType": "KEYS_ONLY"},
                     }
                 ],
                 BillingMode="PAY_PER_REQUEST",
@@ -194,10 +192,7 @@ class DynamoDBHarness:
 @pytest_asyncio.fixture(scope="class")
 async def dynamodb_testkit() -> AsyncGenerator[DBTestKit, None]:
     settings = get_settings()
-    client = DynamoDBClient(
-        region_name=settings.aws_region,
-        endpoint_url=settings.aws_endpoint_url,
-    )
+    client = DynamoDBClient(endpoint_url=settings.aws_endpoint_url)
     yield DBTestKit(client=client, harness=DynamoDBHarness(client))
 
 
