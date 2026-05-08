@@ -98,6 +98,11 @@ def sse_event(model):
     return f"data: {model.model_dump_json()}\n\n"
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 async def save_instream_message(
     db: DBClient, conversation_id: uuid.UUID, buffer: list[str], tp: str | None
 ) -> str | None:
