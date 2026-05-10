@@ -2,6 +2,7 @@
 
 import { type ClientOptions, type Config, createClient, createConfig } from './client';
 import type { ClientOptions as ClientOptions2 } from './types.gen';
+import { API_BASE_URL } from '../config';
 
 /**
  * The `createClientConfig()` function will be called on client initialization
@@ -13,4 +14,4 @@ import type { ClientOptions as ClientOptions2 } from './types.gen';
  */
 export type CreateClientConfig<T extends ClientOptions = ClientOptions2> = (override?: Config<ClientOptions & T>) => Config<Required<ClientOptions> & T>;
 
-export const client = createClient(createConfig<ClientOptions2>({ baseUrl: 'http://localhost:8000' }));
+export const client = createClient(createConfig<ClientOptions2>({ baseUrl: API_BASE_URL }));

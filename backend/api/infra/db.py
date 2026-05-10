@@ -16,13 +16,11 @@ class DatabaseException(Exception):
 class DynamoDBClient:
     def __init__(
         self,
-        region_name: str,
         endpoint_url: str | None = None,
         conversations_table: str = "conversations",
         messages_table: str = "messages",
     ):
         self.session = aioboto3.Session()
-        self._region_name = region_name
         self._aws_endpoint_url = endpoint_url
         self._conversations_table = conversations_table
         self._messages_table = messages_table
@@ -31,9 +29,7 @@ class DynamoDBClient:
     async def get_resource(self):
         try:
             async with self.session.resource(
-                "dynamodb",
-                endpoint_url=self._aws_endpoint_url,
-                region_name=self._region_name,
+                "dynamodb", endpoint_url=self._aws_endpoint_url
             ) as resource:
                 yield resource
         except Exception as e:
