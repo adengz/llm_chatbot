@@ -15,5 +15,6 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
+    "pytest-dotenv>=0.5.2",
     "types-aioboto3[dynamodb]>=15.5.0",
 ]

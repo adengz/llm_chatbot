@@ -204,3 +204,5 @@ frontend/coverage/
 *.sw?
 
 # End of https://www.toptal.com/developers/gitignore/api/react,python
+
+dynamodb_data/

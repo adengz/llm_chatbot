@@ -19,8 +19,8 @@ FROM nginx:alpine
 # Copy the build output to Nginx's html directory
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy custom Nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy custom Nginx configuration template for environment variable substitution
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
 # Expose port 80
 EXPOSE 80
