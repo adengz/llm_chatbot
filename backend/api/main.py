@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     from api.config import get_settings
     from api.infra.db import DynamoDBClient
     from api.infra.llm import AsyncOpenAIClient
-    from api.infra.tools import web_search
+    from api.infra.tools import ddgs_web_search
 
     settings = get_settings()
     db_client: DBClient = DynamoDBClient(
@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
         messages_table=settings.dynamodb_messages_table,
     )
     llm_client: LLMClient = AsyncOpenAIClient(
-        web_search=web_search,
+        web_search=ddgs_web_search,
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
     )
