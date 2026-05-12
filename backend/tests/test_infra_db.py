@@ -255,7 +255,7 @@ class DBClientContract:
                 conversation_id=conversation_id,
                 created_at=now - timedelta(seconds=4),
                 role="assistant",
-                type="thinking",
+                type="reasoning",
                 content="Use calculator to calculate 1+1",
             ),
             Message(

@@ -15,7 +15,7 @@ The frontend is a **Single Page Application (SPA)** built with **React** and **T
 
 ### Notable Design Nuances
 
-- **SSE Streaming**: Instead of standard WebSockets, the app uses a custom `fetch`-based SSE implementation to handle streaming tokens, thinking states, and tool call updates.
+- **SSE Streaming**: Instead of standard WebSockets, the app uses a custom `fetch`-based SSE implementation to handle streaming tokens, reasoning states, and tool call updates.
 - **Auto-Generated SDK**: The REST client is partially generated from the backend's OpenAPI schema, ensuring type synchronization between frontend and backend.
 - **Rich Message Rendering**: Support for GitHub Flavored Markdown (GFM) and specialized components for visualizing internal LLM thought processes and tool interaction JSON.
 

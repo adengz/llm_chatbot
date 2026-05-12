@@ -5,6 +5,7 @@ from typing import Literal, cast
 
 import aioboto3
 from boto3.dynamodb.conditions import Key
+from loguru import logger
 
 from api.domain.models import Conversation, Message
 
@@ -33,7 +34,8 @@ class DynamoDBClient:
             ) as resource:
                 yield resource
         except Exception as e:
-            raise DatabaseException("Failed to get DynamoDB resource") from e
+            logger.exception("Error in DynamoDB ops:")
+            raise DatabaseException("Error in DynamoDB ops:") from e
 
     async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
         conversation_id = uuid.uuid7()
@@ -181,7 +183,7 @@ class DynamoDBClient:
                 created_at=datetime.datetime.fromisoformat(item["created_at"]),
                 role=cast(Literal["user", "assistant"], item["role"]),
                 type=cast(
-                    Literal["tool_call_req", "tool_call_resp", "thinking", "content"],
+                    Literal["tool_call_req", "tool_call_resp", "reasoning", "content"],
                     item["type"],
                 ),
                 content=item["content"],

@@ -77,18 +77,18 @@ describe('MessageList', () => {
     expect(link).toHaveAttribute('href', 'https://example.com')
   })
 
-  it('shows thinking details and auto-opens for streaming assistant message', () => {
+  it('shows reasoning details and auto-opens for streaming assistant message', () => {
     const messages: ChatMessage[] = [
       makeMessage({
-        id: '__streaming__-thinking-1',
+        id: '__streaming__-reasoning-1',
         role: 'assistant',
-        type: 'thinking',
-        content: 'thinking details...',
+        type: 'reasoning',
+        content: 'reasoning details...',
       }),
       makeMessage({
-        id: 'thinking-done',
+        id: 'reasoning-done',
         role: 'assistant',
-        type: 'thinking',
+        type: 'reasoning',
         content: 'complete reasoning',
       }),
     ]
@@ -102,8 +102,8 @@ describe('MessageList', () => {
     // Second should be closed because it's finalized
     expect(detailsElements[1]).not.toHaveAttribute('open')
     
-    expect(screen.getAllByText('Thinking')).toHaveLength(2)
-    expect(screen.getByText('thinking details...')).toBeInTheDocument()
+    expect(screen.getAllByText('Reasoning')).toHaveLength(2)
+    expect(screen.getByText('reasoning details...')).toBeInTheDocument()
   })
 
   it('renders tool call requests and responses', () => {

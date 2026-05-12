@@ -1,31 +1,24 @@
 import json
 import uuid
-from typing import Any, AsyncGenerator, Literal
+from typing import AsyncGenerator, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from api.domain.models import AgentStreamChunk, Conversation, Message
 from api.infra.db import DatabaseException
+from api.infra.llm import ToolCallRequest
+from api.infra.tools import WebSearchRequest, WebSearchResponse, WebSearchResult
 from api.main import DBClient, LLMClient, app, get_db, get_disconnect_checker, get_llm
 from fastapi.testclient import TestClient
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel
 
 
 def tokenize(text: str) -> list[str]:
     return [w if i == 0 else " " + w for i, w in enumerate(text.split())]
 
 
-MockToolCallRequest = create_model(
-    "MockToolCallRequest", name=str, arguments=dict[str, Any]
-)
-MockWebSearchResult = create_model("MockWebSearchResult", content=str, title=str)
-MockWebSearchResponse = create_model(
-    "MockWebSearchResponse", results=(list[MockWebSearchResult], ...)
-)
-
-
 StreamItem = tuple[
-    Literal["thinking", "tool_call_req", "tool_call_resp", "content"], str | BaseModel
+    Literal["reasoning", "tool_call_req", "tool_call_resp", "content"], str | BaseModel
 ]
 
 
@@ -94,7 +87,7 @@ class TestAppEndpoints:
         mock_db.create_conversation.return_value = conv_id
 
         llm_responses: list[StreamItem] = [
-            ("thinking", "Need to respond friendly."),
+            ("reasoning", "Need to respond friendly."),
             ("content", "Hi there! 👋 How can I help you today?"),
         ]
         streamer = MockLLMStreamer(responses=llm_responses)
@@ -132,7 +125,7 @@ class TestAppEndpoints:
             assert bot_msg.role == "assistant"
             assert bot_msg.type == tp
             match tp:
-                case "thinking" | "content":
+                case "reasoning" | "content":
                     assert bot_msg.content == data
                 case "tool_call_req" | "tool_call_resp":
                     assert isinstance(data, BaseModel)
@@ -152,24 +145,25 @@ class TestAppEndpoints:
         ]
         mock_db.load_historical_contents.return_value = existing_msgs
 
-        mock_tool_call_req = MockToolCallRequest(
-            name="web_search",
-            arguments={"query": "Current price of Bitcoin in USD?", "max_results": 1},
+        mock_tool_call_req = ToolCallRequest(
+            function="web_search",
+            request=WebSearchRequest(query="Current price of Bitcoin in USD?"),
         )
-        mock_web_search_resp = MockWebSearchResponse(
+        mock_web_search_resp = WebSearchResponse(
             results=[
-                MockWebSearchResult(
-                    content="$50,000 USD",
+                WebSearchResult(
+                    snippet="$50,000 USD",
                     title="Bitcoin Price",
+                    url="https://example.com/bitcoin-price",
                 )
             ]
         )
 
         llm_responses = [
-            ("thinking", "Need current price. browse."),
+            ("reasoning", "Need current price. browse."),
             ("tool_call_req", mock_tool_call_req),
             ("tool_call_resp", mock_web_search_resp),
-            ("thinking", "Got the price. Need to format response."),
+            ("reasoning", "Got the price. Need to format response."),
             ("content", "The current price of Bitcoin is $50,000 USD."),
         ]
         streamer = MockLLMStreamer(responses=llm_responses)
@@ -219,7 +213,7 @@ class TestAppEndpoints:
             assert bot_msg.role == "assistant"
             assert bot_msg.type == tp
             match tp:
-                case "thinking" | "content":
+                case "reasoning" | "content":
                     assert bot_msg.content == data
                 case "tool_call_req" | "tool_call_resp":
                     assert bot_msg.content == data.model_dump_json()
@@ -234,7 +228,7 @@ class TestAppEndpoints:
         mock_disconnect.side_effect = [True]
 
         llm_responses: list[StreamItem] = [
-            ("thinking", "Need to respond friendly."),
+            ("reasoning", "Need to respond friendly."),
             ("content", "Hi there! 👋 How can I help you today?"),
         ]
         streamer = MockLLMStreamer(responses=llm_responses)
@@ -269,7 +263,7 @@ class TestAppEndpoints:
         mock_db.create_message.side_effect = [None, db_exp, db_exp]
 
         llm_responses: list[StreamItem] = [
-            ("thinking", "Need to respond friendly."),
+            ("reasoning", "Need to respond friendly."),
             ("content", "Hi there! 👋 How can I help you today?"),
         ]
         streamer = MockLLMStreamer(responses=llm_responses)
@@ -283,17 +277,17 @@ class TestAppEndpoints:
 
         assert len(events) == 1 + len(streamer.chunks) + 1 + len(llm_responses)
         assert events[-1]["type"] == "done"
-        thinking_tokens, content_tokens, warnings = [], [], 0
+        reasoning_tokens, content_tokens, warnings = [], [], 0
         for event in events[1:-1]:
             match event["type"]:
-                case "thinking":
-                    thinking_tokens.append(event["delta"])
+                case "reasoning":
+                    reasoning_tokens.append(event["delta"])
                 case "content":
                     content_tokens.append(event["delta"])
                 case "warning":
                     warnings += 1
 
-        assert "".join(thinking_tokens) == llm_responses[0][1]
+        assert "".join(reasoning_tokens) == llm_responses[0][1]
         assert "".join(content_tokens) == llm_responses[1][1]
         assert warnings == 2
 

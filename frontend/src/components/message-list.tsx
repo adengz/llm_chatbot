@@ -190,7 +190,7 @@ export function MessageList({ messages }: MessageListProps) {
       {messages.map((message) => {
         const isAssistant = message.role === 'assistant'
         const isTool = message.type === 'tool_call_req' || message.type === 'tool_call_resp'
-        const isThinking = message.type === 'thinking'
+        const isReasoning = message.type === 'reasoning'
         const isStreaming = message.id.startsWith('__streaming__')
 
         return (
@@ -207,17 +207,17 @@ export function MessageList({ messages }: MessageListProps) {
             <div
               className={`max-w-[70ch] rounded-xl border px-4 py-3 text-sm leading-6 ${
                 isAssistant
-                  ? isThinking || isTool
+                  ? isReasoning || isTool
                     ? 'border-border/50 bg-muted/30 text-muted-foreground'
                     : 'border-border bg-card text-card-foreground'
                   : 'border-primary/40 bg-primary text-primary-foreground'
               }`}
             >
-              {isThinking && (
+              {isReasoning && (
                 <details className="group" open={isStreaming}>
                   <summary className="flex cursor-pointer select-none items-center gap-2 italic text-xs">
                     <Brain className={`size-3 ${isStreaming ? 'animate-pulse' : ''}`} />
-                    <span className="opacity-70">Thinking</span>
+                    <span className="opacity-70">Reasoning</span>
                   </summary>
                   {message.content && (
                     <div className="mt-1 border-l-2 border-border/40 pl-3 text-xs italic opacity-80 overflow-hidden prose prose-sm max-w-none prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">
@@ -235,7 +235,7 @@ export function MessageList({ messages }: MessageListProps) {
                 />
               )}
 
-              {!isTool && !isThinking && (
+              {!isTool && !isReasoning && (
                 <>
                   {isAssistant ? (
                     <div className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 overflow-hidden prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">

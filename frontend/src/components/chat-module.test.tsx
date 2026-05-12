@@ -122,7 +122,7 @@ describe('ChatModule', () => {
 
     expect(await screen.findByText('Hi there')).toBeInTheDocument()
     
-    // Check for content. The thinking part might be rendered in a way that's hard to find 
+    // Check for content. The reasoning part might be rendered in a way that's hard to find 
     // or quickly updated.
     expect(await screen.findByText(/Hello world/)).toBeInTheDocument()
 

@@ -6,6 +6,7 @@ from typing import AsyncGenerator, Awaitable, Callable, Protocol
 from fastapi import Body, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from loguru import logger
 
 from api.domain.models import AgentStreamChunk, Conversation, Message, MessageRequest
 from api.infra.db import DatabaseException
@@ -51,7 +52,8 @@ def get_user_id() -> int:
 async def lifespan(app: FastAPI):
     from api.config import get_settings
     from api.infra.db import DynamoDBClient
-    from api.infra.llm import AsyncOllamaClient
+    from api.infra.llm import AsyncOpenAIClient
+    from api.infra.tools import web_search
 
     settings = get_settings()
     db_client: DBClient = DynamoDBClient(
@@ -59,8 +61,10 @@ async def lifespan(app: FastAPI):
         conversations_table=settings.dynamodb_conversations_table,
         messages_table=settings.dynamodb_messages_table,
     )
-    llm_client: LLMClient = AsyncOllamaClient(
-        api_key=settings.ollama_api_key, use_cloud=True
+    llm_client: LLMClient = AsyncOpenAIClient(
+        web_search=web_search,
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
     )
 
     app.state.db_client = db_client
@@ -76,6 +80,7 @@ app.add_middleware(
 
 @app.exception_handler(DatabaseException)
 async def database_exception_handler(request: Request, exc: DatabaseException):
+    logger.error(f"Database error: {exc}")
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
@@ -107,7 +112,7 @@ async def save_instream_message(
     db: DBClient, conversation_id: uuid.UUID, buffer: list[str], tp: str | None
 ) -> str | None:
     if not buffer or tp not in (
-        "thinking",
+        "reasoning",
         "content",
         "tool_call_req",
         "tool_call_resp",
@@ -123,6 +128,9 @@ async def save_instream_message(
     try:
         await db.create_message(message=message)
     except Exception as exc:
+        logger.warning(
+            f"Failed to save message for conversation {conversation_id}: {exc}"
+        )
         warning = sse_event(
             AgentStreamChunk(
                 type="warning", exception="Failed to save message: " + str(exc)
@@ -149,7 +157,7 @@ async def generate_stream(
     ):
         data = None
         match chunk.type:
-            case "thinking" | "content":
+            case "reasoning" | "content":
                 data = chunk.delta
             case "tool_call_req" | "tool_call_resp":
                 if chunk.data is not None:
@@ -172,6 +180,9 @@ async def generate_stream(
         yield sse_event(chunk)
 
         if await is_disconnected():
+            logger.info(
+                f"Client disconnected during streaming for conversation {conversation_id}"
+            )
             await save_instream_message(
                 db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type
             )
