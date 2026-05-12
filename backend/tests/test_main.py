@@ -186,6 +186,7 @@ class TestAppEndpoints:
             match event["type"]:
                 case "tool_call_req":
                     assert event["data"] == mock_tool_call_req.model_dump()
+                    assert event["data"]["request"] != {}
                 case "tool_call_resp":
                     assert event["data"] == mock_web_search_resp.model_dump()
                 case _:

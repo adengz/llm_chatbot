@@ -4,7 +4,7 @@ from typing import AsyncGenerator, Awaitable, Callable, cast
 from loguru import logger
 from openai import AsyncOpenAI, pydantic_function_tool
 from openai.types.chat import ChatCompletionMessageParam
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializeAsAny
 
 from api.domain.models import AgentStreamChunk, Message
 from api.infra.tools import WebSearchRequest, WebSearchResponse
@@ -12,7 +12,7 @@ from api.infra.tools import WebSearchRequest, WebSearchResponse
 
 class ToolCallRequest(BaseModel):
     function: str
-    request: BaseModel
+    request: SerializeAsAny[BaseModel]
 
 
 func_name_2_req_cls: dict[str, type[BaseModel]] = {"web_search": WebSearchRequest}
