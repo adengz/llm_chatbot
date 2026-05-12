@@ -7,12 +7,14 @@ env_file = Path(__file__).parent.parent / ".env"
 
 
 class Settings(BaseSettings):
+    llm_base_url: str | None = None
+    llm_api_key: str = ""  # Must explicitly provide, empty string will raise an error
+
     aws_endpoint_url: str | None = None
+
     dynamodb_conversations_table: str = "conversations"
     dynamodb_messages_table: str = "messages"
 
-    openai_base_url: str | None = None
-    openai_api_key: str = "sk-"
     ollama_test_model: str = "qwen3:0.6b"
 
     model_config = SettingsConfigDict(

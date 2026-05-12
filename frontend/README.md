@@ -29,11 +29,7 @@ npm install
 
 ### Environment Variables
 
-The frontend can be configured using environment variables. Create a `.env` file in the `frontend` directory:
-
-```env
-VITE_API_BASE_URL=http://localhost:8000
-```
+The frontend can be configured using environment variables. Create a `.env` file in the `frontend` directory. An example working with the backend dev server can be found [here](.env.example).
 
 ### Run Dev Server
 
@@ -45,7 +41,9 @@ npm run dev
 
 The app will be available at `http://localhost:5173`. Any changes to the source code will trigger a hot reload.
 
-## Quality Checks
+### Quality Checks
+
+#### Linting
 
 Run linting with ESLint:
 
@@ -53,7 +51,7 @@ Run linting with ESLint:
 npm run lint
 ```
 
-### Automated Tests
+#### Testing
 
 We use **Vitest** and **React Testing Library** for frontend testing. Tests cover business logic in hooks and component interactions, with heavy use of mocking for API and streaming responses.
 
@@ -75,7 +73,7 @@ Run tests with coverage:
 npm run test:coverage
 ```
 
-### Build
+## Build
 
 Create a production-ready bundle:
 
