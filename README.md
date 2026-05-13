@@ -32,7 +32,7 @@ This key will be injected to backend container via docker compose as a secret.
 
 Consumed by multiple containers defined in [`compose.yaml`](compose.yaml). A working example of `.env` file can be found [here](.env.example). 
 
-### Spin up the entire stack
+### Spin up the Entire Stack
 
 To spin up the full stack including the frontend, backend, and a local DynamoDB instance, run:
 

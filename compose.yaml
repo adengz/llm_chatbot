@@ -33,10 +33,10 @@ services:
       - llm_api_key
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:80/health\")'"]
-      interval: 2s
+      interval: 30s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      start_period: 15s
 
   frontend:
     build:
