@@ -118,11 +118,13 @@ async def save_instream_message(
         "tool_call_resp",
     ):
         return
+    content = "".join(buffer)
+    logger.info(f"LLM content of type '{tp}': {content}")
     message = Message(
         conversation_id=conversation_id,
         role="assistant",
         type=tp,
-        content="".join(buffer),
+        content=content,
     )
     warning = None
     try:

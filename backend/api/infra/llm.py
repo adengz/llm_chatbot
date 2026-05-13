@@ -41,6 +41,7 @@ class AsyncOpenAIClient:
             list[ChatCompletionMessageParam],
             [m.model_dump(include={"role", "content"}) for m in reversed(context)],
         )
+        logger.info(f"Initial context: {messages}")
         kwargs = {
             "model": model,
             "messages": messages,
@@ -69,6 +70,7 @@ class AsyncOpenAIClient:
                     yield AgentStreamChunk(type="tool_call_resp", data=resp)
                     new_message = {"role": "tool", "tool_call_id": tc.id}
                     new_message["content"] = resp.model_dump_json()
+                    logger.info(f"New context from tool call: {new_message}")
                     kwargs["messages"].append(
                         cast(ChatCompletionMessageParam, new_message)
                     )

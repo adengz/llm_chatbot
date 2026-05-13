@@ -100,12 +100,14 @@ class DynamoDBClient:
         ]
 
     async def create_message(self, message: Message) -> None:
+        created_at = message.created_at.isoformat()
         item = {
             "conversation_id": str(message.conversation_id),
-            "created_at": message.created_at.isoformat(),
+            "created_at": created_at,
             "role": message.role,
             "type": message.type,
             "content": message.content,
+            "type-created_at": f"{message.type}#{created_at}",
         }
         async with self.get_resource() as resource:
             table = await resource.Table(self._messages_table)
