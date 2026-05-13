@@ -1,68 +1,62 @@
 import type { MessageRequest } from './types.gen'
 import { API_BASE_URL } from '../config'
+import { createSseClient } from './core/serverSentEvents.gen'
 
 export type SSEEvent =
   | { type: 'metadata'; conversation_id: string }
-  | { type: 'thinking'; delta: string }
+  | { type: 'reasoning'; delta: string }
   | { type: 'tool_call_req'; delta?: string; data?: unknown }
   | { type: 'tool_call_resp'; delta?: string; data?: unknown }
   | { type: 'content'; delta: string }
   | { type: 'error'; exception: string }
   | { type: 'done' }
 
+const SSE_EVENT_TYPES = new Set([
+  'metadata',
+  'reasoning',
+  'tool_call_req',
+  'tool_call_resp',
+  'content',
+  'error',
+  'done',
+])
+
+function isSSEEvent(value: unknown): value is SSEEvent {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const maybeType = (value as { type?: unknown }).type
+  return typeof maybeType === 'string' && SSE_EVENT_TYPES.has(maybeType)
+}
+
 export async function* streamMessage(
   req: MessageRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<SSEEvent> {
-  const response = await fetch(`${API_BASE_URL}/messages`, {
+  const { stream } = createSseClient({
+    url: `${API_BASE_URL}/messages`,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    serializedBody: JSON.stringify(req),
     signal,
+    onSseError: (error) => {
+      if (error instanceof Error) {
+        throw error
+      }
+      throw new Error(String(error))
+    },
   })
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText)
-    throw new Error(`POST /messages failed: ${response.status} ${text}`)
-  }
-
-  if (!response.body) {
-    throw new Error('Response body is empty')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed.startsWith('data:')) continue
-        const payload = trimmed.slice(5).trim()
-        if (!payload) continue
-
-        let event: SSEEvent
-        try {
-          event = JSON.parse(payload) as SSEEvent
-        } catch {
-          continue
-        }
-
-        yield event
-
-        if (event.type === 'done' || event.type === 'error') return
-      }
+  for await (const rawEvent of stream) {
+    if (!isSSEEvent(rawEvent)) {
+      continue
     }
-  } finally {
-    reader.releaseLock()
+
+    yield rawEvent
+
+    if (rawEvent.type === 'done' || rawEvent.type === 'error') {
+      return
+    }
   }
 }

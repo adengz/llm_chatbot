@@ -91,7 +91,7 @@ export function useChatStreaming({
           if (event.type === 'metadata') {
             onMetadata(event.conversation_id, startedFromNewConversation)
           } else if (
-            event.type === 'thinking' ||
+            event.type === 'reasoning' ||
             event.type === 'tool_call_req' ||
             event.type === 'tool_call_resp' ||
             event.type === 'content'

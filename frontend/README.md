@@ -15,7 +15,7 @@ The frontend is a **Single Page Application (SPA)** built with **React** and **T
 
 ### Notable Design Nuances
 
-- **SSE Streaming**: Instead of standard WebSockets, the app uses a custom `fetch`-based SSE implementation to handle streaming tokens, thinking states, and tool call updates.
+- **SSE Streaming**: Instead of standard WebSockets, the app uses a custom `fetch`-based SSE implementation to handle streaming tokens, reasoning states, and tool call updates.
 - **Auto-Generated SDK**: The REST client is partially generated from the backend's OpenAPI schema, ensuring type synchronization between frontend and backend.
 - **Rich Message Rendering**: Support for GitHub Flavored Markdown (GFM) and specialized components for visualizing internal LLM thought processes and tool interaction JSON.
 
@@ -29,11 +29,18 @@ npm install
 
 ### Environment Variables
 
-The frontend can be configured using environment variables. Create a `.env` file in the `frontend` directory:
+The frontend can be configured using environment variables. Create a `.env` file in the `frontend` directory. An example working with the backend dev server can be found [here](.env.example).
 
-```env
-VITE_API_BASE_URL=http://localhost:8000
+### Generate Client SDK w/ Backend's OpenAPI Schema
+
+With backend server running at `$VITE_API_BASE_URL` (defined in `.env`), generate client SDK using
+
+```bash
+source .env
+npx @hey-api/openapi-ts -i ${VITE_API_BASE_URL}/openapi.json -o src/client
 ```
+
+Note that FastAPI does not support automatic OpenAPI schema generation for SSE. The generated SDK only has an SSE client supporting receiving streaming events. Parsing events as objects still needs to be implemented. 
 
 ### Run Dev Server
 
@@ -45,7 +52,9 @@ npm run dev
 
 The app will be available at `http://localhost:5173`. Any changes to the source code will trigger a hot reload.
 
-## Quality Checks
+### Quality Checks
+
+#### Linting
 
 Run linting with ESLint:
 
@@ -53,7 +62,7 @@ Run linting with ESLint:
 npm run lint
 ```
 
-### Automated Tests
+#### Testing
 
 We use **Vitest** and **React Testing Library** for frontend testing. Tests cover business logic in hooks and component interactions, with heavy use of mocking for API and streaming responses.
 
@@ -75,7 +84,7 @@ Run tests with coverage:
 npm run test:coverage
 ```
 
-### Build
+## Build
 
 Create a production-ready bundle:
 

@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import AsyncGenerator, Protocol
+from typing import AsyncGenerator, Literal, Protocol, cast
 
 import pytest
 import pytest_asyncio
@@ -23,9 +23,9 @@ class DBHarness(Protocol):
         self, user_id: int = 0, title: str = ""
     ) -> uuid.UUID: ...
 
-    async def fetch_conversation_title(
+    async def fetch_raw_conversation(
         self, user_id: int, conversation_id: uuid.UUID
-    ) -> str | None: ...
+    ) -> dict | None: ...
 
     async def count_conversations(self, user_id: int) -> int: ...
 
@@ -33,9 +33,9 @@ class DBHarness(Protocol):
 
     async def insert_messages(self, messages: list[Message]) -> None: ...
 
-    async def fetch_message_record(
+    async def fetch_raw_message(
         self, conversation_id: uuid.UUID, created_at: datetime
-    ) -> tuple[str, str] | None: ...
+    ) -> dict | None: ...
 
 
 @dataclass
@@ -121,18 +121,13 @@ class DynamoDBHarness:
             await table.put_item(Item=item)
         return conversation_id
 
-    async def fetch_conversation_title(
+    async def fetch_raw_conversation(
         self, user_id: int, conversation_id: uuid.UUID
-    ) -> str | None:
-        async with self.client.get_resource() as resource:
-            table = await resource.Table(self.client._conversations_table)
-            response = await table.get_item(
-                Key={"user_id": user_id, "conversation_id": str(conversation_id)},
-                ProjectionExpression="#title",
-                ExpressionAttributeNames={"#title": "title"},
-            )
-        item = response.get("Item")
-        return str(item["title"]) if item else None
+    ) -> dict | None:
+        key = {"user_id": user_id, "conversation_id": str(conversation_id)}
+        return await self._fetch_raw_item(
+            table_name=self.client._conversations_table, key=key
+        )
 
     async def count_conversations(self, user_id: int) -> int:
         async with self.client.get_resource() as resource:
@@ -159,34 +154,34 @@ class DynamoDBHarness:
     async def insert_messages(self, messages: list[Message]) -> None:
         async with self.client.get_resource() as resource:
             table = await resource.Table(self.client._messages_table)
-            for message in messages:
-                item = {
-                    "conversation_id": str(message.conversation_id),
-                    "created_at": message.created_at.isoformat(),
-                    "role": message.role,
-                    "type": message.type,
-                    "type-created_at": f"{message.type}#{message.created_at.isoformat()}",
-                    "content": message.content,
-                }
-                await table.put_item(Item=item)
+            async with table.batch_writer() as batch:
+                for message in messages:
+                    item = {
+                        "conversation_id": str(message.conversation_id),
+                        "created_at": message.created_at.isoformat(),
+                        "role": message.role,
+                        "type": message.type,
+                        "type-created_at": f"{message.type}#{message.created_at.isoformat()}",
+                        "content": message.content,
+                    }
+                    await batch.put_item(Item=item)
 
-    async def fetch_message_record(
+    async def fetch_raw_message(
         self, conversation_id: uuid.UUID, created_at: datetime
-    ) -> tuple[str, str] | None:
+    ) -> dict | None:
+        key = {
+            "conversation_id": str(conversation_id),
+            "created_at": created_at.isoformat(),
+        }
+        return await self._fetch_raw_item(
+            table_name=self.client._messages_table, key=key
+        )
+
+    async def _fetch_raw_item(self, table_name: str, key: dict) -> dict | None:
         async with self.client.get_resource() as resource:
-            table = await resource.Table(self.client._messages_table)
-            response = await table.get_item(
-                Key={
-                    "conversation_id": str(conversation_id),
-                    "created_at": created_at.isoformat(),
-                },
-                ProjectionExpression="#role, #content",
-                ExpressionAttributeNames={"#role": "role", "#content": "content"},
-            )
-        item = response.get("Item")
-        if item is None:
-            return None
-        return str(item["role"]), str(item["content"])
+            table = await resource.Table(table_name)
+            response = await table.get_item(Key=key)
+        return response.get("Item")
 
 
 @pytest_asyncio.fixture(scope="class")
@@ -229,61 +224,55 @@ class DBClientContract:
             user_id, "Test Conversation"
         )
         now = datetime.now()
-        messages = [
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=1),
-                role="assistant",
-                type="content",
-                content="2",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=2),
-                role="assistant",
-                type="tool_call_resp",
-                content="2",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=3),
-                role="assistant",
-                type="tool_call_req",
-                content="1+1",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=4),
-                role="assistant",
-                type="thinking",
-                content="Use calculator to calculate 1+1",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=5),
-                role="user",
-                type="content",
-                content="1+1=?",
-            ),
+        messages_data = [
+            ("user", "content", "1+1=?"),
+            ("assistant", "reasoning", "Use calculator to calculate 1+1"),
+            ("assistant", "tool_call_req", "1+1"),
+            ("assistant", "tool_call_resp", "2"),
+            ("assistant", "content", "2"),
+            ("user", "content", "1+1=?"),
+            ("assistant", "reasoning", "Just calculated 1+1, the answer is 2"),
+            ("assistant", "content", "2"),
         ]
+        messages = []
+        for i, (role, tp, content) in enumerate(messages_data):
+            role = cast(Literal["user", "assistant"], role)
+            tp = cast(
+                Literal["tool_call_req", "tool_call_resp", "reasoning", "content"], tp
+            )
+            messages.append(
+                Message(
+                    conversation_id=conversation_id,
+                    created_at=now + timedelta(seconds=i, hours=-1),
+                    role=role,
+                    type=tp,
+                    content=content,
+                )
+            )
 
         await db_harness.insert_messages(messages)
 
         assert await db_harness.count_conversations(user_id) == 1
-        assert await db_harness.count_messages(conversation_id) == 5
+        assert await db_harness.count_messages(conversation_id) == len(messages_data)
         yield conversation_id
 
     @pytest.mark.asyncio
     async def test_create_conversation(
-        self, db_client: DBClient, db_harness: DBHarness
+        self,
+        db_client: DBClient,
+        db_harness: DBHarness,
+        conversation_idx_fields: list[str],
     ):
         user_id = 0
         conversation_id = await db_client.create_conversation(user_id, "Hello World")
 
-        stored_title = await db_harness.fetch_conversation_title(
-            user_id, conversation_id
-        )
-        assert stored_title == "Hello World"
+        conversation = await db_harness.fetch_raw_conversation(user_id, conversation_id)
+        assert conversation is not None
+        assert conversation["user_id"] == user_id
+        assert conversation["conversation_id"] == str(conversation_id)
+        assert conversation["title"] == "Hello World"
+        for field in conversation_idx_fields:
+            assert field in conversation
 
     @pytest.mark.asyncio
     async def test_rename_conversation(
@@ -292,15 +281,18 @@ class DBClientContract:
         user_id = 0
         conversation_id = await db_harness.insert_conversation(user_id, "Old Title")
 
-        title = await db_harness.fetch_conversation_title(user_id, conversation_id)
-        assert title == "Old Title"
+        conversation = await db_harness.fetch_raw_conversation(user_id, conversation_id)
+        assert conversation is not None
+        assert conversation["title"] == "Old Title"
 
         await db_client.rename_conversation(user_id, conversation_id, "New Title")
 
-        updated_title = await db_harness.fetch_conversation_title(
+        updated_conversation = await db_harness.fetch_raw_conversation(
             user_id, conversation_id
         )
-        assert updated_title == "New Title"
+        assert updated_conversation is not None
+        assert updated_conversation["conversation_id"] == str(conversation_id)
+        assert updated_conversation["title"] == "New Title"
 
     @pytest.mark.asyncio
     async def test_delete_conversation(
@@ -329,7 +321,9 @@ class DBClientContract:
         assert [r.title for r in res] == titles[::-1]
 
     @pytest.mark.asyncio
-    async def test_create_message(self, db_client: DBClient, db_harness: DBHarness):
+    async def test_create_message(
+        self, db_client: DBClient, db_harness: DBHarness, message_idx_fields: list[str]
+    ):
         conversation_id = uuid.uuid1()
         role = "user"
         content = "Hello World"
@@ -337,38 +331,26 @@ class DBClientContract:
         created_at = message.created_at
 
         await db_client.create_message(message)
-        stored_message = await db_harness.fetch_message_record(
-            conversation_id, created_at
-        )
+        stored_message = await db_harness.fetch_raw_message(conversation_id, created_at)
 
-        assert stored_message == (role, content)
+        assert stored_message is not None
+        assert stored_message["role"] == role
+        assert stored_message["content"] == content
+        for field in message_idx_fields:
+            assert field in stored_message
 
     @pytest.mark.asyncio
     async def test_scroll_messages(
         self, db_client: DBClient, test_conversation_id: uuid.UUID
     ):
         now = datetime.now()
-        latest_messages = await db_client.scroll_messages(
-            test_conversation_id, now, limit=4
-        )
-        assert len(latest_messages) == 4
-        assert [m.content for m in latest_messages] == [
-            "2",
-            "2",
-            "1+1",
-            "Use calculator to calculate 1+1",
-        ]
-        assert all([m.role == "assistant" for m in latest_messages])
-
-        second_latest_messages = await db_client.scroll_messages(
-            test_conversation_id, latest_messages[-1].created_at, limit=4
-        )
-        assert len(second_latest_messages) == 1
-        assert second_latest_messages[0].content == "1+1=?"
-        assert second_latest_messages[0].role == "user"
+        messages = await db_client.scroll_messages(test_conversation_id, now)
+        assert len(messages) == 8
+        order = [m.created_at for m in messages]
+        assert order == sorted(order, reverse=True)
 
         no_more_messages = await db_client.scroll_messages(
-            test_conversation_id, second_latest_messages[-1].created_at, limit=4
+            test_conversation_id, messages[-1].created_at
         )
         assert len(no_more_messages) == 0
 
@@ -377,13 +359,25 @@ class DBClientContract:
         self, db_client: DBClient, test_conversation_id: uuid.UUID
     ):
         messages = await db_client.load_historical_contents(test_conversation_id)
-        assert len(messages) == 2
-        assert [m.content for m in messages] == ["2", "1+1=?"]
-        assert [m.role for m in messages] == ["assistant", "user"]
+        assert len(messages) == 4
         assert all([m.type == "content" for m in messages])
+        order = [m.created_at for m in messages]
+        assert order == sorted(order, reverse=True)
 
 
 class TestDynamoDBClient(DBClientContract):
+    @pytest_asyncio.fixture()
+    async def conversation_idx_fields(self) -> list[str]:
+        fields = ["user_id", "conversation_id"]
+        assert len(fields) > 0
+        return fields
+
+    @pytest_asyncio.fixture()
+    async def message_idx_fields(self) -> list[str]:
+        fields = ["conversation_id", "created_at", "type-created_at"]
+        assert len(fields) > 0
+        return fields
+
     @pytest_asyncio.fixture(scope="class")
     async def db_testkit(self, dynamodb_testkit: DBTestKit) -> DBTestKit:
         return dynamodb_testkit

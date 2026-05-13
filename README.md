@@ -5,38 +5,33 @@ A full-stack LLM chatbot application featuring a React frontend, Python FastAPI 
 ## Project Structure
 
 - `frontend/`: React application with Vite, Tailwind CSS, and Shadcn UI.
-- `backend/`: FastAPI application with Pydantic settings and Ollama integration.
+- `backend/`: FastAPI application with Pydantic settings and OpenAI SDK integration.
 - `compose.yaml`: Main Docker Compose file to orchestrate the whole stack.
 
 ## Prerequisites
 
 - [Docker](https://www.docker.com/get-started) and Docker Compose installed.
-- An `.env` file in the root directory (see [Environment Variables](#environment-variables)).
+- A `.env` file in the root directory (see [Other Environment Variables](#other-environment-variables)).
 
-## Run the application locally
+## Run the Application Locally
 
 ### Environment Variables
 
-Create an `.env` file in the root folder with the following variables:
+#### LLM API Key
 
-```env
-# AWS / DynamoDB local configs
-# Consumed by aioboto3 SDK, pointing to the DynamoDB local container
-AWS_ENDPOINT_URL="http://dynamodb-local:8000"
-# Dummy AWS configurations, not required if you have configured at ~/.aws
-AWS_DEFAULT_REGION="not-on-earth"
-AWS_ACCESS_KEY_ID="NotAnAccessKeyId"
-AWS_SECRET_ACCESS_KEY="not+a+secret+access+key"
-# DynamoDB table names used
-DYNAMODB_CONVERSATIONS_TABLE="conversations"
-DYNAMODB_MESSAGES_TABLE="messages"
+Using [Ollama Cloud](https://docs.ollama.com/cloud#cloud-api-access) as an example LLM provider. You may use any provider with OpenAI-compatible endpoints. 
 
-# Ollama api key to use cloud model and web search
-OLLAMA_API_KEY=your_api_key_here
+Create an API key, then set an environment variable to this key.
 
-# Nginx config for routing requests to backend
-BACKEND_URL="http://backend/"
+```bash
+export OLLAMA_API_KEY=your_api_key
 ```
+This key will be injected to backend container via docker compose as a secret.
+
+#### Other Environment Variables
+
+Consumed by multiple containers defined in [`compose.yaml`](compose.yaml). A working example of `.env` file can be found [here](.env.example). 
+
 ### Spin up the entire stack
 
 To spin up the full stack including the frontend, backend, and a local DynamoDB instance, run:

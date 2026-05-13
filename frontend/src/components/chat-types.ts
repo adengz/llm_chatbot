@@ -1,5 +1,5 @@
 export type Role = 'user' | 'assistant'
-export type MessageType = 'tool_call_req' | 'tool_call_resp' | 'thinking' | 'content'
+export type MessageType = 'tool_call_req' | 'tool_call_resp' | 'reasoning' | 'content'
 
 export type ChatMessage = {
   id: string

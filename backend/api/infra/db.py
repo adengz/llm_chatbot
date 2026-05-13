@@ -5,6 +5,7 @@ from typing import Literal, cast
 
 import aioboto3
 from boto3.dynamodb.conditions import Key
+from loguru import logger
 
 from api.domain.models import Conversation, Message
 
@@ -33,7 +34,8 @@ class DynamoDBClient:
             ) as resource:
                 yield resource
         except Exception as e:
-            raise DatabaseException("Failed to get DynamoDB resource") from e
+            logger.exception("Error in DynamoDB ops:")
+            raise DatabaseException("Error in DynamoDB ops:") from e
 
     async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
         conversation_id = uuid.uuid7()
@@ -98,11 +100,13 @@ class DynamoDBClient:
         ]
 
     async def create_message(self, message: Message) -> None:
+        created_at = message.created_at.isoformat()
         item = {
             "conversation_id": str(message.conversation_id),
-            "created_at": message.created_at.isoformat(),
+            "created_at": created_at,
             "role": message.role,
             "type": message.type,
+            "type-created_at": f"{message.type}#{created_at}",
             "content": message.content,
         }
         async with self.get_resource() as resource:
@@ -152,7 +156,11 @@ class DynamoDBClient:
                         }
                     }
                 )
-                all_items.extend(response.get("Responses", {}).get("messages", []))
+                key_2_item = {
+                    item["created_at"]: item
+                    for item in response.get("Responses", {}).get("messages", [])
+                }
+                all_items.extend([key_2_item[key["created_at"]] for key in keys])
                 offset += 100
 
         return self._pack_messages(all_items)
@@ -181,7 +189,7 @@ class DynamoDBClient:
                 created_at=datetime.datetime.fromisoformat(item["created_at"]),
                 role=cast(Literal["user", "assistant"], item["role"]),
                 type=cast(
-                    Literal["tool_call_req", "tool_call_resp", "thinking", "content"],
+                    Literal["tool_call_req", "tool_call_resp", "reasoning", "content"],
                     item["type"],
                 ),
                 content=item["content"],

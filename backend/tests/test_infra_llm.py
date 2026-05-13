@@ -4,28 +4,26 @@ import pytest
 import pytest_asyncio
 from api.config import get_settings
 from api.domain.models import Message
-from api.infra.llm import AsyncOllamaClient
-from pydantic import create_model
+from api.infra.llm import AsyncOpenAIClient
+from api.infra.tools import WebSearchResponse, WebSearchResult
 
+OLLAMA_OPENAI_ENDPOINT = "http://localhost:11434/v1"
 OLLAMA_TEST_MODEL = get_settings().ollama_test_model
 
 SIMPLE_PROPMT = "Reply with exactly one short word."
 WEB_ACCESS_PROMPT = "Current price of Bitcoin in USD?"
 
-MockWebSearchResult = create_model("MockWebSearchResult", content=str, title=str)
-MockWebSearchResponse = create_model(
-    "MockWebSearchResponse", results=(list[MockWebSearchResult], ...)
-)
-
 
 @pytest_asyncio.fixture()
-async def ollama_client() -> AsyncOllamaClient:
-    return AsyncOllamaClient()
+async def ollama_client() -> AsyncOpenAIClient:
+    return AsyncOpenAIClient(
+        web_search=AsyncMock(), api_key="sk-", base_url=OLLAMA_OPENAI_ENDPOINT
+    )
 
 
 class TestAsyncOllamaClient:
     @pytest.mark.asyncio
-    async def test_list_models(self, ollama_client: AsyncOllamaClient):
+    async def test_list_models(self, ollama_client: AsyncOpenAIClient):
         models = await ollama_client.list_models()
 
         assert isinstance(models, list)
@@ -33,8 +31,9 @@ class TestAsyncOllamaClient:
 
     @pytest.mark.asyncio
     async def test_stream_response_without_web_access(
-        self, ollama_client: AsyncOllamaClient
+        self, ollama_client: AsyncOpenAIClient
     ):
+        ollama_client.web_search = AsyncMock()
         chunks = []
         async for chunk in ollama_client.stream_response(
             context=[Message(role="user", content=SIMPLE_PROPMT)],
@@ -44,24 +43,27 @@ class TestAsyncOllamaClient:
 
         assert chunks[-1].type == "done"
         assert chunks[-2].type == "content"
-        assert all(chunk.type == "thinking" for chunk in chunks[:-2])
+        assert all(chunk.type == "reasoning" for chunk in chunks[:-2])
+
+        assert ollama_client.web_search.await_count == 0
 
     @pytest.mark.asyncio
     async def test_stream_response_with_web_access(
-        self, ollama_client: AsyncOllamaClient
+        self, ollama_client: AsyncOpenAIClient
     ):
         import random
 
         price = random.uniform(0, 150000)
-        mock_response = MockWebSearchResponse(
+        mock_response = WebSearchResponse(
             results=[
-                MockWebSearchResult(
-                    content=f"The current price of Bitcoin is ${price:,.2f} USD.",
+                WebSearchResult(
+                    url="https://www.coindesk.com/price/bitcoin",
                     title="Bitcoin Price",
+                    snippet=f"The current price of Bitcoin is ${price:,.2f}.",
                 )
             ]
         )
-        ollama_client.client.web_search = AsyncMock(return_value=mock_response)
+        ollama_client.web_search = AsyncMock(return_value=mock_response)
 
         chunks = []
         async for chunk in ollama_client.stream_response(
@@ -79,16 +81,14 @@ class TestAsyncOllamaClient:
                 answer.append(chunk.delta)
 
         assert len(tool_calls) > 0
-        assert tool_calls[0].name == "web_search"
-        assert (
-            tool_calls[0].arguments
-            == ollama_client.client.web_search.await_args_list[0].kwargs
-        )
+        assert tool_calls[0].function == "web_search"
+        args, _ = ollama_client.web_search.await_args_list[0]
+        assert tool_calls[0].request == args[0]
 
         assert f"{price:,.2f}" in "".join(answer)
 
     @pytest.mark.asyncio
-    async def test_stream_response_model_error(self, ollama_client: AsyncOllamaClient):
+    async def test_stream_response_model_error(self, ollama_client: AsyncOpenAIClient):
         chunks = []
         async for chunk in ollama_client.stream_response(
             context=[Message(role="user", content=SIMPLE_PROPMT)],
@@ -101,10 +101,10 @@ class TestAsyncOllamaClient:
         assert chunks[-1].status_code == 404
 
     @pytest.mark.asyncio
-    async def test_stream_response_tool_error(self, ollama_client: AsyncOllamaClient):
-        ollama_client.client.web_search = AsyncMock(
-            side_effect=Exception("Internal Server Error")
-        )
+    async def test_stream_response_tool_error(self, ollama_client: AsyncOpenAIClient):
+        exc = Exception("Too Many Requests")
+        setattr(exc, "status_code", 429)
+        ollama_client.web_search = AsyncMock(side_effect=exc)
 
         chunks = []
         async for chunk in ollama_client.stream_response(
@@ -116,4 +116,4 @@ class TestAsyncOllamaClient:
 
         assert len(chunks) > 1
         assert chunks[-1].type == "error"
-        assert chunks[-1].status_code == 500
+        assert chunks[-1].status_code == 429
