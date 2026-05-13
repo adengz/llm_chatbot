@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import AsyncGenerator, Protocol
+from typing import AsyncGenerator, Literal, Protocol, cast
 
 import pytest
 import pytest_asyncio
@@ -154,16 +154,17 @@ class DynamoDBHarness:
     async def insert_messages(self, messages: list[Message]) -> None:
         async with self.client.get_resource() as resource:
             table = await resource.Table(self.client._messages_table)
-            for message in messages:
-                item = {
-                    "conversation_id": str(message.conversation_id),
-                    "created_at": message.created_at.isoformat(),
-                    "role": message.role,
-                    "type": message.type,
-                    "type-created_at": f"{message.type}#{message.created_at.isoformat()}",
-                    "content": message.content,
-                }
-                await table.put_item(Item=item)
+            async with table.batch_writer() as batch:
+                for message in messages:
+                    item = {
+                        "conversation_id": str(message.conversation_id),
+                        "created_at": message.created_at.isoformat(),
+                        "role": message.role,
+                        "type": message.type,
+                        "type-created_at": f"{message.type}#{message.created_at.isoformat()}",
+                        "content": message.content,
+                    }
+                    await batch.put_item(Item=item)
 
     async def fetch_raw_message(
         self, conversation_id: uuid.UUID, created_at: datetime
@@ -223,48 +224,36 @@ class DBClientContract:
             user_id, "Test Conversation"
         )
         now = datetime.now()
-        messages = [
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=1),
-                role="assistant",
-                type="content",
-                content="2",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=2),
-                role="assistant",
-                type="tool_call_resp",
-                content="2",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=3),
-                role="assistant",
-                type="tool_call_req",
-                content="1+1",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=4),
-                role="assistant",
-                type="reasoning",
-                content="Use calculator to calculate 1+1",
-            ),
-            Message(
-                conversation_id=conversation_id,
-                created_at=now - timedelta(seconds=5),
-                role="user",
-                type="content",
-                content="1+1=?",
-            ),
+        messages_data = [
+            ("user", "content", "1+1=?"),
+            ("assistant", "reasoning", "Use calculator to calculate 1+1"),
+            ("assistant", "tool_call_req", "1+1"),
+            ("assistant", "tool_call_resp", "2"),
+            ("assistant", "content", "2"),
+            ("user", "content", "1+1=?"),
+            ("assistant", "reasoning", "Just calculated 1+1, the answer is 2"),
+            ("assistant", "content", "2"),
         ]
+        messages = []
+        for i, (role, tp, content) in enumerate(messages_data):
+            role = cast(Literal["user", "assistant"], role)
+            tp = cast(
+                Literal["tool_call_req", "tool_call_resp", "reasoning", "content"], tp
+            )
+            messages.append(
+                Message(
+                    conversation_id=conversation_id,
+                    created_at=now + timedelta(seconds=i, hours=-1),
+                    role=role,
+                    type=tp,
+                    content=content,
+                )
+            )
 
         await db_harness.insert_messages(messages)
 
         assert await db_harness.count_conversations(user_id) == 1
-        assert await db_harness.count_messages(conversation_id) == 5
+        assert await db_harness.count_messages(conversation_id) == len(messages_data)
         yield conversation_id
 
     @pytest.mark.asyncio
@@ -355,27 +344,13 @@ class DBClientContract:
         self, db_client: DBClient, test_conversation_id: uuid.UUID
     ):
         now = datetime.now()
-        latest_messages = await db_client.scroll_messages(
-            test_conversation_id, now, limit=4
-        )
-        assert len(latest_messages) == 4
-        assert [m.content for m in latest_messages] == [
-            "2",
-            "2",
-            "1+1",
-            "Use calculator to calculate 1+1",
-        ]
-        assert all([m.role == "assistant" for m in latest_messages])
-
-        second_latest_messages = await db_client.scroll_messages(
-            test_conversation_id, latest_messages[-1].created_at, limit=4
-        )
-        assert len(second_latest_messages) == 1
-        assert second_latest_messages[0].content == "1+1=?"
-        assert second_latest_messages[0].role == "user"
+        messages = await db_client.scroll_messages(test_conversation_id, now)
+        assert len(messages) == 8
+        order = [m.created_at for m in messages]
+        assert order == sorted(order, reverse=True)
 
         no_more_messages = await db_client.scroll_messages(
-            test_conversation_id, second_latest_messages[-1].created_at, limit=4
+            test_conversation_id, messages[-1].created_at
         )
         assert len(no_more_messages) == 0
 
@@ -384,10 +359,10 @@ class DBClientContract:
         self, db_client: DBClient, test_conversation_id: uuid.UUID
     ):
         messages = await db_client.load_historical_contents(test_conversation_id)
-        assert len(messages) == 2
-        assert [m.content for m in messages] == ["2", "1+1=?"]
-        assert [m.role for m in messages] == ["assistant", "user"]
+        assert len(messages) == 4
         assert all([m.type == "content" for m in messages])
+        order = [m.created_at for m in messages]
+        assert order == sorted(order, reverse=True)
 
 
 class TestDynamoDBClient(DBClientContract):

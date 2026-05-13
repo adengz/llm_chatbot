@@ -106,8 +106,8 @@ class DynamoDBClient:
             "created_at": created_at,
             "role": message.role,
             "type": message.type,
-            "content": message.content,
             "type-created_at": f"{message.type}#{created_at}",
+            "content": message.content,
         }
         async with self.get_resource() as resource:
             table = await resource.Table(self._messages_table)
@@ -156,7 +156,11 @@ class DynamoDBClient:
                         }
                     }
                 )
-                all_items.extend(response.get("Responses", {}).get("messages", []))
+                key_2_item = {
+                    item["created_at"]: item
+                    for item in response.get("Responses", {}).get("messages", [])
+                }
+                all_items.extend([key_2_item[key["created_at"]] for key in keys])
                 offset += 100
 
         return self._pack_messages(all_items)
