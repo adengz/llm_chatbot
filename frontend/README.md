@@ -31,6 +31,17 @@ npm install
 
 The frontend can be configured using environment variables. Create a `.env` file in the `frontend` directory. An example working with the backend dev server can be found [here](.env.example).
 
+### Generate Client SDK w/ Backend's OpenAPI Schema
+
+With backend server running at `$VITE_API_BASE_URL` (defined in `.env`), generate client SDK using
+
+```bash
+source .env
+npx @hey-api/openapi-ts -i ${VITE_API_BASE_URL}/openapi.json -o src/client
+```
+
+Note that FastAPI does not support automatic OpenAPI schema generation for SSE. The generated SDK only has an SSE client supporting receiving streaming events. Parsing events as objects still needs to be implemented. 
+
 ### Run Dev Server
 
 With the backend running and the `.env` file configured, start the development server:

@@ -30,7 +30,7 @@ services:
       dynamodb-local-init:
         condition: service_completed_successfully
     secrets:
-      - ollama_api_key
+      - llm_api_key
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:80/health\")'"]
       interval: 2s
@@ -50,5 +50,5 @@ services:
         condition: service_healthy
 
 secrets:
-  ollama_api_key:
+  llm_api_key:
     environment: OLLAMA_API_KEY
