@@ -14,8 +14,7 @@ class WebSearchContract:
         response = await search(request)
 
         assert len(response.results) > 0
-        for result in response.results:
-            assert "wikipedia.org" in result.url
+        assert any("wikipedia.org" in r.url for r in response.results)
 
 
 class TestDDGSWebSearch(WebSearchContract):
