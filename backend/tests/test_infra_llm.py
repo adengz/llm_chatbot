@@ -1,22 +1,29 @@
-from unittest.mock import AsyncMock
-
 import pytest
 import pytest_asyncio
 from api.config import get_settings
-from api.domain.models import AgentStreamChunk, UserMessage
+from api.domain.models import (
+    AgentStreamChunk,
+    AssistantMessage,
+    Message,
+    UserMessage,
+)
 from api.infra.llm import AsyncOpenAIClient
-from api.infra.tools import WebSearchResponse, WebSearchResult
+from api.infra.tools import WebScrapeRequest
+from openai import pydantic_function_tool
 
 OLLAMA_OPENAI_ENDPOINT = "http://localhost:11434/v1"
 OLLAMA_TEST_MODEL = get_settings().ollama_test_model
 
 SIMPLE_PROPMT = "Hello"
-WEB_ACCESS_PROMPT = "Current price of Bitcoin in USD?"
+WEB_SCRAPE_PROMPT = "What content is hosted on this URL: https://example.com?"
 
 
 @pytest_asyncio.fixture()
 async def ollama_client() -> AsyncOpenAIClient:
-    return AsyncOpenAIClient(api_key="sk-", base_url=OLLAMA_OPENAI_ENDPOINT)
+    tools = [pydantic_function_tool(WebScrapeRequest, name="web_scrape")]
+    return AsyncOpenAIClient(
+        api_key="sk-", base_url=OLLAMA_OPENAI_ENDPOINT, tools=tools
+    )
 
 
 class TestAsyncOllamaClient:
@@ -27,15 +34,15 @@ class TestAsyncOllamaClient:
         assert isinstance(models, list)
         assert OLLAMA_TEST_MODEL in models
 
-    @pytest.mark.asyncio
-    async def test_stream_response_no_need_web_access(
-        self, ollama_client: AsyncOpenAIClient
-    ):
+    async def validate_stream_response(
+        self, client: AsyncOpenAIClient, context: list[Message], web_access: bool
+    ) -> AssistantMessage:
         buffers = {"reasoning": [], "content": []}
         message = None
-        async for chunk in ollama_client.stream_response(
-            context=[UserMessage(role="user", content=SIMPLE_PROPMT)],
+        async for chunk in client.stream_response(
+            context=context,
             model=OLLAMA_TEST_MODEL,
+            web_access=web_access,
         ):
             if isinstance(chunk, AgentStreamChunk):
                 buffers[chunk.type].append(chunk.delta)
@@ -48,53 +55,47 @@ class TestAsyncOllamaClient:
             assert "".join(buffers["reasoning"]) == message.reasoning
         else:
             assert len(buffers["reasoning"]) == 0
-        assert message.tool_calls is None
+
+        return message
 
     @pytest.mark.asyncio
-    async def test_stream_response_with_web_access(
+    async def test_stream_response_simple_prompt(
         self, ollama_client: AsyncOpenAIClient
     ):
-        import random
-
-        price = random.uniform(0, 150000)
-        mock_response = WebSearchResponse(
-            results=[
-                WebSearchResult(
-                    url="https://www.coindesk.com/price/bitcoin",
-                    title="Bitcoin Price",
-                    snippet=f"The current price of Bitcoin is ${price:,.2f}.",
-                )
-            ]
+        context: list[Message] = [UserMessage(content=SIMPLE_PROPMT)]
+        response = await self.validate_stream_response(
+            ollama_client, context, web_access=True
         )
-        ollama_client.web_search = AsyncMock(return_value=mock_response)
-
-        chunks = []
-        async for chunk in ollama_client.stream_response(
-            context=[Message(role="user", content=WEB_ACCESS_PROMPT)],
-            model=OLLAMA_TEST_MODEL,
-            web_access=True,
-        ):
-            chunks.append(chunk)
-
-        answer, tool_calls = [], []
-        for chunk in chunks:
-            if chunk.type == "tool_call_req":
-                tool_calls.append(chunk.data)
-            elif chunk.type == "content":
-                answer.append(chunk.delta)
-
-        assert len(tool_calls) > 0
-        assert tool_calls[0].function == "web_search"
-        args, _ = ollama_client.web_search.await_args_list[0]
-        assert tool_calls[0].request == args[0]
-
-        assert f"{price:,.2f}" in "".join(answer)
+        assert response.tool_calls is None
 
     @pytest.mark.asyncio
-    async def test_stream_response_model_error(self, ollama_client: AsyncOpenAIClient):
+    async def test_stream_response_web_access_off(
+        self, ollama_client: AsyncOpenAIClient
+    ):
+        context: list[Message] = [UserMessage(content=WEB_SCRAPE_PROMPT)]
+        response = await self.validate_stream_response(
+            ollama_client, context, web_access=False
+        )
+        assert response.tool_calls is None
+
+    @pytest.mark.asyncio
+    async def test_stream_response_web_access_on(
+        self, ollama_client: AsyncOpenAIClient
+    ):
+        context: list[Message] = [UserMessage(content=WEB_SCRAPE_PROMPT)]
+        response = await self.validate_stream_response(
+            ollama_client, context, web_access=True
+        )
+
+        assert response.tool_calls is not None
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0].function.name == "web_scrape"
+
+    @pytest.mark.asyncio
+    async def test_stream_response_error(self, ollama_client: AsyncOpenAIClient):
         chunks = []
         async for chunk in ollama_client.stream_response(
-            context=[Message(role="user", content=SIMPLE_PROPMT)],
+            context=[UserMessage(role="user", content=SIMPLE_PROPMT)],
             model="llama5",
         ):
             chunks.append(chunk)
@@ -102,21 +103,3 @@ class TestAsyncOllamaClient:
         assert len(chunks) == 1
         assert chunks[-1].type == "error"
         assert chunks[-1].status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_stream_response_tool_error(self, ollama_client: AsyncOpenAIClient):
-        exc = Exception("Too Many Requests")
-        setattr(exc, "status_code", 429)
-        ollama_client.web_search = AsyncMock(side_effect=exc)
-
-        chunks = []
-        async for chunk in ollama_client.stream_response(
-            context=[Message(role="user", content=WEB_ACCESS_PROMPT)],
-            model=OLLAMA_TEST_MODEL,
-            web_access=True,
-        ):
-            chunks.append(chunk)
-
-        assert len(chunks) > 1
-        assert chunks[-1].type == "error"
-        assert chunks[-1].status_code == 429
