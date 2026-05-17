@@ -11,12 +11,41 @@ class Conversation(BaseModel):
     title: str
 
 
-class Message(BaseModel):
+class FunctionToolCall(BaseModel):
+    class Function(BaseModel):
+        name: str
+        arguments: str
+
+    id: str
+    function: Function
+
+
+Role = Literal["user", "assistant", "tool"]
+
+
+class BaseMessage(BaseModel):
     conversation_id: uuid.UUID | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now())
-    role: Literal["user", "assistant"]
-    type: Literal["tool_call_req", "tool_call_resp", "reasoning", "content"] = "content"
-    content: str
+    role: Role
+    content: str = ""
+
+
+class UserMessage(BaseMessage):
+    role: Role = "user"
+
+
+class AssistantMessage(BaseMessage):
+    role: Role = "assistant"
+    reasoning: str | None = None
+    tool_calls: SerializeAsAny[list[FunctionToolCall]] | None = None
+
+
+class ToolMessage(BaseMessage):
+    role: Role = "tool"
+    tool_call_id: str
+
+
+Message = UserMessage | AssistantMessage | ToolMessage
 
 
 class MessageRequest(BaseModel):
@@ -29,16 +58,17 @@ class MessageRequest(BaseModel):
 class AgentStreamChunk(BaseModel):
     type: Literal[
         "metadata",
-        "tool_call_req",
-        "tool_call_resp",
         "reasoning",
+        "tool_calls",
+        "tool",
         "content",
         "done",
         "error",
         "warning",
     ]
     conversation_id: uuid.UUID | None = None
+    tool_call_id: str | None = None
     delta: str | None = None
-    data: SerializeAsAny[BaseModel] | None = None
+    data: SerializeAsAny[list[FunctionToolCall] | str] | None = None
     exception: str | None = None
     status_code: int = 200
