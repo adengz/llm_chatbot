@@ -3,22 +3,20 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from api.config import get_settings
-from api.domain.models import Message
+from api.domain.models import AgentStreamChunk, UserMessage
 from api.infra.llm import AsyncOpenAIClient
 from api.infra.tools import WebSearchResponse, WebSearchResult
 
 OLLAMA_OPENAI_ENDPOINT = "http://localhost:11434/v1"
 OLLAMA_TEST_MODEL = get_settings().ollama_test_model
 
-SIMPLE_PROPMT = "Reply with exactly one short word."
+SIMPLE_PROPMT = "Hello"
 WEB_ACCESS_PROMPT = "Current price of Bitcoin in USD?"
 
 
 @pytest_asyncio.fixture()
 async def ollama_client() -> AsyncOpenAIClient:
-    return AsyncOpenAIClient(
-        web_search=AsyncMock(), api_key="sk-", base_url=OLLAMA_OPENAI_ENDPOINT
-    )
+    return AsyncOpenAIClient(api_key="sk-", base_url=OLLAMA_OPENAI_ENDPOINT)
 
 
 class TestAsyncOllamaClient:
@@ -30,22 +28,27 @@ class TestAsyncOllamaClient:
         assert OLLAMA_TEST_MODEL in models
 
     @pytest.mark.asyncio
-    async def test_stream_response_without_web_access(
+    async def test_stream_response_no_need_web_access(
         self, ollama_client: AsyncOpenAIClient
     ):
-        ollama_client.web_search = AsyncMock()
-        chunks = []
+        buffers = {"reasoning": [], "content": []}
+        message = None
         async for chunk in ollama_client.stream_response(
-            context=[Message(role="user", content=SIMPLE_PROPMT)],
+            context=[UserMessage(role="user", content=SIMPLE_PROPMT)],
             model=OLLAMA_TEST_MODEL,
         ):
-            chunks.append(chunk)
+            if isinstance(chunk, AgentStreamChunk):
+                buffers[chunk.type].append(chunk.delta)
+            else:
+                message = chunk
 
-        assert chunks[-1].type == "done"
-        assert chunks[-2].type == "content"
-        assert all(chunk.type == "reasoning" for chunk in chunks[:-2])
-
-        assert ollama_client.web_search.await_count == 0
+        assert message is not None
+        assert "".join(buffers["content"]) == message.content
+        if message.reasoning:
+            assert "".join(buffers["reasoning"]) == message.reasoning
+        else:
+            assert len(buffers["reasoning"]) == 0
+        assert message.tool_calls is None
 
     @pytest.mark.asyncio
     async def test_stream_response_with_web_access(

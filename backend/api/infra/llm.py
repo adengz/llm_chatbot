@@ -1,33 +1,19 @@
-from collections import deque
-from typing import AsyncGenerator, Awaitable, Callable, cast
+from typing import AsyncGenerator, cast
 
 from loguru import logger
-from openai import AsyncOpenAI, pydantic_function_tool
-from openai.types.chat import ChatCompletionMessageParam
-from pydantic import BaseModel, SerializeAsAny
+from openai import AsyncOpenAI
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
-from api.domain.models import AgentStreamChunk, Message
-from api.infra.tools import WebSearchRequest, WebSearchResponse
-
-
-class ToolCallRequest(BaseModel):
-    function: str
-    request: SerializeAsAny[BaseModel]
-
-
-func_name_2_req_cls: dict[str, type[BaseModel]] = {"web_search": WebSearchRequest}
-
-web_search_tool = pydantic_function_tool(WebSearchRequest, name="web_search")
+from api.domain.models import (
+    AgentStreamChunk,
+    AssistantMessage,
+    FunctionToolCall,
+    Message,
+)
 
 
 class AsyncOpenAIClient:
-    def __init__(
-        self,
-        web_search: Callable[[WebSearchRequest], Awaitable[WebSearchResponse]],
-        api_key: str,
-        base_url: str | None = None,
-    ):
-        self.web_search = web_search
+    def __init__(self, api_key: str, base_url: str | None = None):
         self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     async def list_models(self) -> list[str]:
@@ -36,61 +22,48 @@ class AsyncOpenAIClient:
 
     async def stream_response(
         self, context: list[Message], model: str, web_access: bool = False
-    ) -> AsyncGenerator[AgentStreamChunk, None]:
-        messages = cast(
-            list[ChatCompletionMessageParam],
-            [m.model_dump(include={"role", "content"}) for m in reversed(context)],
-        )
-        logger.info(f"Initial context: {messages}")
-        kwargs = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            "reasoning_effort": "medium",
-        }
-        if web_access:
-            kwargs["tools"] = [web_search_tool]
+    ) -> AsyncGenerator[AgentStreamChunk | AssistantMessage, None]:
+        meta_data_fields = {"conversation_id", "created_at"}
+        messages = [m.model_dump(exclude=meta_data_fields) for m in context]
+        logger.info(f"Web access on: {web_access}")
+        logger.info(f"Invoking model {model} with context:\n{messages}")
 
-        done = False
-        tc_queue = deque()
+        async with self.client.chat.completions.stream(
+            model=model,
+            messages=cast(list[ChatCompletionMessageParam], messages),
+        ) as stream:
+            async for event in stream:
+                if event.type != "chunk":
+                    continue
 
-        try:
-            while tc_queue or not done:
-                while tc_queue:
-                    tc = tc_queue.popleft()
-                    req = func_name_2_req_cls[tc.function.name].model_validate_json(
-                        tc.function.arguments
-                    )
-                    func = getattr(self, tc.function.name)
+                delta = event.chunk.choices[0].delta
+                if hasattr(delta, "reasoning"):
                     yield AgentStreamChunk(
-                        type="tool_call_req",
-                        data=ToolCallRequest(function=tc.function.name, request=req),
+                        type="reasoning",
+                        delta=getattr(delta, "reasoning"),
                     )
-                    resp: BaseModel = await func(req)
-                    yield AgentStreamChunk(type="tool_call_resp", data=resp)
-                    new_message = {"role": "tool", "tool_call_id": tc.id}
-                    new_message["content"] = resp.model_dump_json()
-                    logger.info(f"New context from tool call: {new_message}")
-                    kwargs["messages"].append(
-                        cast(ChatCompletionMessageParam, new_message)
+                elif delta.content:
+                    yield AgentStreamChunk(
+                        type="content",
+                        delta=delta.content,
                     )
 
-                async for chunk in await self.client.chat.completions.create(**kwargs):
-                    delta = chunk.choices[0].delta
-                    if delta.tool_calls is not None:
-                        tc_queue.extend(delta.tool_calls)
-                    elif hasattr(delta, "reasoning"):
-                        yield AgentStreamChunk(type="reasoning", delta=delta.reasoning)
-                    elif delta.content:
-                        yield AgentStreamChunk(type="content", delta=delta.content)
-                    done = done = chunk.choices[0].finish_reason == "stop"
-
-            yield AgentStreamChunk(type="done")
-
-        except Exception as exc:
-            logger.exception("Error in stream_response:")
-            yield AgentStreamChunk(
-                type="error",
-                exception=str(exc),
-                status_code=getattr(exc, "status_code", 500),
-            )
+        completion = await stream.get_final_completion()
+        message = completion.choices[0].message
+        tool_calls = None
+        if message.tool_calls:
+            tool_calls = [
+                FunctionToolCall(
+                    id=call.id,
+                    function=FunctionToolCall.Function(
+                        name=call.function.name,
+                        arguments=call.function.arguments,
+                    ),
+                )
+                for call in message.tool_calls
+            ]
+        yield AssistantMessage(
+            content=message.content or "",
+            reasoning=getattr(message, "reasoning", None),
+            tool_calls=tool_calls,
+        )
