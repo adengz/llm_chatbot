@@ -255,7 +255,7 @@ class DBClientContract:
             },
             {
                 "role": "assistant",
-                "reasoning": "Count siblings. Putting them in a JSON array and counting the length.",
+                "reasoning": "Count siblings. Put them in a JSON array and count the length.",
                 "tool_calls": [
                     FunctionToolCall(
                         id="call-1",
