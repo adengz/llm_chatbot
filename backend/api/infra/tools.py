@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from ddgs import DDGS
 from pydantic import BaseModel, Field
@@ -30,14 +31,9 @@ def ddgs_search(query: str) -> list[dict]:
         return ddgs.text(query, max_results=3)
 
 
-async def ddgs_web_search(request: WebSearchRequest) -> list[WebSearchResult]:
+async def ddgs_web_search(request: WebSearchRequest) -> str:
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, ddgs_search, request.query)
-    return [
-        WebSearchResult(
-            title=result["title"],
-            url=result["href"],
-            snippet=result["body"],
-        )
-        for result in results
-    ]
+    return json.dumps(
+        [{"title": r["title"], "url": r["href"], "snippet": r["body"]} for r in results]
+    )

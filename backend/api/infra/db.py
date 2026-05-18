@@ -20,10 +20,6 @@ from api.domain.models import (
 tool_calls_adapter = TypeAdapter(list[FunctionToolCall])
 
 
-class DatabaseException(Exception):
-    pass
-
-
 class DynamoDBClient:
     def __init__(
         self,
@@ -38,14 +34,10 @@ class DynamoDBClient:
 
     @asynccontextmanager
     async def get_resource(self):
-        try:
-            async with self.session.resource(
-                "dynamodb", endpoint_url=self._aws_endpoint_url
-            ) as resource:
-                yield resource
-        except Exception as e:
-            logger.exception("Error in DynamoDB ops:")
-            raise DatabaseException("Error in DynamoDB ops:") from e
+        async with self.session.resource(
+            "dynamodb", endpoint_url=self._aws_endpoint_url
+        ) as resource:
+            yield resource
 
     async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
         conversation_id = uuid.uuid7()

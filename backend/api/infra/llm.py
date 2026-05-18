@@ -42,51 +42,44 @@ class AsyncOpenAIClient:
             if not web_access and tool["function"]["name"].startswith("web_"):
                 continue
             tools.append(tool)
-        try:
-            async with self.client.chat.completions.stream(
-                model=model,
-                messages=cast(list[ChatCompletionMessageParam], messages),
-                tools=tools,
-            ) as stream:
-                async for event in stream:
-                    if event.type != "chunk":
-                        continue
 
-                    delta = event.chunk.choices[0].delta
-                    if hasattr(delta, "reasoning"):
-                        yield AgentStreamChunk(
-                            type="reasoning",
-                            delta=getattr(delta, "reasoning"),
-                        )
-                    elif delta.content:
-                        yield AgentStreamChunk(
-                            type="content",
-                            delta=delta.content,
-                        )
+        async with self.client.chat.completions.stream(
+            model=model,
+            messages=cast(list[ChatCompletionMessageParam], messages),
+            tools=tools,
+        ) as stream:
+            async for event in stream:
+                if event.type != "chunk":
+                    continue
 
-            completion = await stream.get_final_completion()
-            message = completion.choices[0].message
-            tool_calls = None
-            if message.tool_calls:
-                tool_calls = [
-                    FunctionToolCall(
-                        id=call.id,
-                        function=FunctionToolCall.Function(
-                            name=call.function.name,
-                            arguments=call.function.arguments,
-                        ),
+                delta = event.chunk.choices[0].delta
+                if hasattr(delta, "reasoning"):
+                    yield AgentStreamChunk(
+                        type="reasoning",
+                        delta=getattr(delta, "reasoning"),
                     )
-                    for call in message.tool_calls
-                ]
-            yield AssistantMessage(
-                content=message.content or "",
-                reasoning=getattr(message, "reasoning", None),
-                tool_calls=tool_calls,
-            )
-        except Exception as exc:
-            logger.error(f"LLM streaming error: {exc}")
-            yield AgentStreamChunk(
-                type="error",
-                exception=str(exc),
-                status_code=getattr(exc, "status_code", 500),
-            )
+                elif delta.content:
+                    yield AgentStreamChunk(
+                        type="content",
+                        delta=delta.content,
+                    )
+
+        completion = await stream.get_final_completion()
+        message = completion.choices[0].message
+        tool_calls = None
+        if message.tool_calls:
+            tool_calls = [
+                FunctionToolCall(
+                    id=call.id,
+                    function=FunctionToolCall.Function(
+                        name=call.function.name,
+                        arguments=call.function.arguments,
+                    ),
+                )
+                for call in message.tool_calls
+            ]
+        yield AssistantMessage(
+            content=message.content or "",
+            reasoning=getattr(message, "reasoning", None),
+            tool_calls=tool_calls,
+        )
