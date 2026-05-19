@@ -109,7 +109,7 @@ def tool_calls() -> list[FunctionToolCall]:
             id="scrape",
             function=FunctionToolCall.Function(
                 name="web_scrape",
-                arguments='{"url": "example.com"}',
+                arguments='{"url": "https://example.com"}',
             ),
         ),
     ]

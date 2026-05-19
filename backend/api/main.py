@@ -77,13 +77,21 @@ async def lifespan(app: FastAPI):
     from api.config import get_settings
     from api.infra.db import DynamoDBClient
     from api.infra.llm import AsyncOpenAIClient
-    from api.infra.tools import WebSearchRequest, ddgs_web_search
+    from api.infra.tools import (
+        WebScrapeRequest,
+        WebSearchRequest,
+        crawl4ai_web_scrape,
+        ddgs_web_search,
+    )
 
     settings = get_settings()
 
     tool_registry = {
         "web_search": FunctionToolSpec(
             input_cls=WebSearchRequest, func=ddgs_web_search
+        ),
+        "web_scrape": FunctionToolSpec(
+            input_cls=WebScrapeRequest, func=crawl4ai_web_scrape
         ),
     }
     tools = []

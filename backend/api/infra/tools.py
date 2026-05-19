@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from crawl4ai import AsyncWebCrawler
 from ddgs import DDGS
 from pydantic import BaseModel, Field
 
@@ -37,3 +38,11 @@ async def ddgs_web_search(request: WebSearchRequest) -> str:
     return json.dumps(
         [{"title": r["title"], "url": r["href"], "snippet": r["body"]} for r in results]
     )
+
+
+async def crawl4ai_web_scrape(request: WebScrapeRequest) -> str:
+    async with AsyncWebCrawler() as crawler:
+        result = await crawler.arun(request.url)
+        if not result.success:
+            raise Exception(result.error_message)
+        return result.markdown
