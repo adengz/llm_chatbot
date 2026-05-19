@@ -1,7 +1,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { streamMessage } from '../client/stream'
-import type { ChatMessage, ModelSource } from '../components/chat-types'
+import type { ChatMessage, ModelSource, ToolCall } from '../components/chat-types'
 
 const STREAMING_MESSAGE_ID = '__streaming__'
 
@@ -33,17 +33,112 @@ export function useChatStreaming({
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
+  const parseToolCallArguments = (argumentsRaw: unknown): unknown => {
+    if (typeof argumentsRaw !== 'string') {
+      return argumentsRaw
+    }
+
+    try {
+      return JSON.parse(argumentsRaw)
+    } catch {
+      return argumentsRaw
+    }
+  }
+
+  const parseToolCalls = (raw: unknown): ToolCall[] | undefined => {
+    let payload = raw
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload)
+      } catch {
+        return undefined
+      }
+    }
+
+    if (!Array.isArray(payload)) {
+      return undefined
+    }
+
+    const toolCalls: ToolCall[] = []
+    for (const item of payload) {
+      if (!item || typeof item !== 'object') {
+        continue
+      }
+
+      const record = item as {
+        id?: unknown
+        function?: { name?: unknown; arguments?: unknown }
+      }
+
+      if (typeof record.id !== 'string') {
+        continue
+      }
+
+      if (!record.function || typeof record.function.name !== 'string') {
+        continue
+      }
+
+      toolCalls.push({
+        id: record.id,
+        function: {
+          name: record.function.name,
+          arguments: parseToolCallArguments(record.function.arguments),
+        },
+      })
+    }
+
+    return toolCalls.length > 0 ? toolCalls : undefined
+  }
+
+  const parseToolContent = (raw: unknown): unknown => {
+    if (typeof raw !== 'string') {
+      return raw ?? ''
+    }
+
+    const trimmed = raw.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed)
+      } catch {
+        return raw
+      }
+    }
+
+    return raw
+  }
+
+  const createFinalId = (role: ChatMessage['role']) => `${role}-${Date.now()}-${Math.random()}`
+
   const stopStreaming = () => {
     abortRef.current?.abort()
   }
 
-  const finalizeStreamingMessage = (fallbackContent?: string) => {
+  const finalizeStreamingMessages = (fallbackAssistantContent?: string) => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id.startsWith(STREAMING_MESSAGE_ID)
-          ? { ...m, id: `${m.type}-${Date.now()}-${Math.random()}`, content: m.content || fallbackContent || '' }
+          ? m.role === 'assistant'
+            ? {
+                ...m,
+                id: createFinalId(m.role),
+                content: m.content || fallbackAssistantContent || '',
+              }
+            : {
+                ...m,
+                id: createFinalId(m.role),
+              }
           : m,
       ),
+    )
+  }
+
+  const finalizeMessageById = (messageId: string | null) => {
+    if (!messageId) {
+      return
+    }
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, id: createFinalId(m.role) } : m)),
     )
   }
 
@@ -76,8 +171,22 @@ export function useChatStreaming({
 
     void (async () => {
       try {
-        let currentStreamingId: string | null = null
-        let currentSegmentType: string | null = null
+        let currentAssistantId: string | null = null
+
+        const ensureCurrentAssistant = () => {
+          if (currentAssistantId) {
+            return currentAssistantId
+          }
+
+          currentAssistantId = `${STREAMING_MESSAGE_ID}-assistant-${Date.now()}-${Math.random()}`
+          const assistantMessage: ChatMessage = {
+            id: currentAssistantId,
+            role: 'assistant',
+            content: '',
+          }
+          setMessages((prev) => [...prev, assistantMessage])
+          return currentAssistantId
+        }
 
         for await (const event of streamMessage(
           {
@@ -90,78 +199,94 @@ export function useChatStreaming({
         )) {
           if (event.type === 'metadata') {
             onMetadata(event.conversation_id, startedFromNewConversation)
-          } else if (
-            event.type === 'reasoning' ||
-            event.type === 'tool_call_req' ||
-            event.type === 'tool_call_resp' ||
-            event.type === 'content'
-          ) {
-            if (currentSegmentType !== event.type) {
-              // Finalize previous segment by changing ID from __streaming__ prefix
-              if (currentStreamingId) {
-                const finishedId = currentStreamingId
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === finishedId
-                      ? { ...m, id: `${m.type}-${Date.now()}-${Math.random()}` }
-                      : m,
-                  ),
-                )
-              }
+            continue
+          }
 
-              currentSegmentType = event.type
-              currentStreamingId = `${STREAMING_MESSAGE_ID}-${event.type}-${Date.now()}`
-              const newSegment: ChatMessage = {
-                id: currentStreamingId,
-                role: 'assistant',
-                type: event.type,
-                content: '',
-              }
-              setMessages((prev) => [...prev, newSegment])
+          if (event.type === 'reasoning') {
+            const assistantId = ensureCurrentAssistant()
+            if (!event.delta) {
+              continue
             }
 
-            if (currentStreamingId) {
-              let delta = ''
-              if (event.type === 'tool_call_req' || event.type === 'tool_call_resp') {
-                if (event.data) {
-                  delta = typeof event.data === 'string' ? event.data : JSON.stringify(event.data)
-                } else if (event.delta) {
-                  delta = event.delta
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId || m.role !== 'assistant') {
+                  return m
                 }
-              } else {
-                delta = event.delta || ''
-              }
+                return {
+                  ...m,
+                  reasoning: `${m.reasoning ?? ''}${event.delta}`,
+                }
+              }),
+            )
+            continue
+          }
 
-              if (delta) {
-                setMessages((prev) =>
-                  prev.map((m) => {
-                    if (m.id === currentStreamingId) {
-                      // For tool calls, if we get a full object, we might want to replace rather than append
-                      // because the backend logic for tool calls often emits the full state in one chunk.
-                      const isTool = event.type === 'tool_call_req' || event.type === 'tool_call_resp'
-                      return { 
-                        ...m, 
-                        content: isTool ? delta : (m.content + delta) 
-                      }
-                    }
-                    return m
-                  }),
-                )
-              }
+          if (event.type === 'content') {
+            const assistantId = ensureCurrentAssistant()
+            if (!event.delta) {
+              continue
             }
+
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId || m.role !== 'assistant') {
+                  return m
+                }
+                return {
+                  ...m,
+                  content: m.content + event.delta,
+                }
+              }),
+            )
+            continue
+          }
+
+          if (event.type === 'tool_calls') {
+            const assistantId = ensureCurrentAssistant()
+            const nextToolCalls = parseToolCalls(event.data)
+
+            if (nextToolCalls) {
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (m.id !== assistantId || m.role !== 'assistant') {
+                    return m
+                  }
+                  return {
+                    ...m,
+                    toolCalls: nextToolCalls,
+                  }
+                }),
+              )
+            }
+
+            finalizeMessageById(assistantId)
+            currentAssistantId = null
+            continue
+          }
+
+          if (event.type === 'tool') {
+            const toolMessage: ChatMessage = {
+              id: `tool-${event.tool_call_id}-${Date.now()}-${Math.random()}`,
+              role: 'tool',
+              toolCallId: event.tool_call_id,
+              content: parseToolContent(event.data),
+            }
+            setMessages((prev) => [...prev, toolMessage])
+            continue
           } else if (event.type === 'error') {
             setMessagesError(event.exception)
-            finalizeStreamingMessage(`[Error: ${event.exception}]`)
+            finalizeStreamingMessages(`[Error: ${event.exception}]`)
           } else if (event.type === 'done') {
-            finalizeStreamingMessage()
+            finalizeStreamingMessages()
           }
         }
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
           setMessagesError((err as Error).message)
-          finalizeStreamingMessage('[Error: stream failed]')
+          finalizeStreamingMessages('[Error: stream failed]')
         } else {
-          finalizeStreamingMessage()
+          finalizeStreamingMessages()
         }
       } finally {
         abortRef.current = null

@@ -5,8 +5,8 @@ import { createSseClient } from './core/serverSentEvents.gen'
 export type SSEEvent =
   | { type: 'metadata'; conversation_id: string }
   | { type: 'reasoning'; delta: string }
-  | { type: 'tool_call_req'; delta?: string; data?: unknown }
-  | { type: 'tool_call_resp'; delta?: string; data?: unknown }
+  | { type: 'tool_calls'; data?: unknown }
+  | { type: 'tool'; tool_call_id: string; data?: unknown }
   | { type: 'content'; delta: string }
   | { type: 'error'; exception: string }
   | { type: 'done' }
@@ -14,8 +14,8 @@ export type SSEEvent =
 const SSE_EVENT_TYPES = new Set([
   'metadata',
   'reasoning',
-  'tool_call_req',
-  'tool_call_resp',
+  'tool_calls',
+  'tool',
   'content',
   'error',
   'done',

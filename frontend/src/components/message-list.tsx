@@ -13,6 +13,8 @@ type MessageListProps = {
   messages: ChatMessage[]
 }
 
+type AssistantChatMessage = Extract<ChatMessage, { role: 'assistant' }>
+
 function ExpandableStringValue({ value }: { value: string }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const MAX_DISPLAY_LENGTH = 100
@@ -142,42 +144,64 @@ function ExpandableJsonValue({ value, level = 0 }: { value: JsonValue; level?: n
   return <span>{String(value)}</span>
 }
 
-function ToolCallDisplay({ content, type, isStreaming }: { content: string; type: string; isStreaming?: boolean }) {
-  let parsedData: JsonValue | null = null
-  let displayContent = content
-  let isValidJson = false
-
-  try {
-    const trimmed = content.trim()
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      parsedData = JSON.parse(trimmed)
-      displayContent = JSON.stringify(parsedData, null, 2)
-      isValidJson = true
-    }
-  } catch {
-    // Partial JSON or not JSON
+function ToolCallsDisplay({
+  toolCalls,
+  isStreaming,
+}: {
+  toolCalls: AssistantChatMessage['toolCalls']
+  isStreaming?: boolean
+}) {
+  if (!toolCalls || toolCalls.length === 0) {
+    return null
   }
 
   return (
-    <details 
-      className="mb-2 rounded-md border border-border/70 bg-background/70 p-2 text-xs text-muted-foreground group" 
+    <details
+      className="mb-2 rounded-md border border-border/70 bg-background/70 p-2 text-xs text-muted-foreground group"
       open={isStreaming}
     >
       <summary className="flex cursor-pointer select-none items-center gap-2">
         <Code2 className="size-3" />
-        <span className="font-medium">
-          {type === 'tool_call_req' ? 'Tool Call Request' : 'Tool Call Response'}
-        </span>
+        <span className="font-medium">Tool Calls ({toolCalls.length})</span>
+      </summary>
+      <div className="mt-2 overflow-hidden rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed max-h-96 overflow-auto">
+        <ExpandableJsonValue
+          value={toolCalls.map((call) => ({
+            id: call.id,
+            function: {
+              name: call.function.name,
+              arguments: call.function.arguments as JsonValue,
+            },
+          }))}
+        />
+      </div>
+    </details>
+  )
+}
+
+function ToolResultDisplay({
+  toolCallId,
+  content,
+}: {
+  toolCallId: string
+  content: unknown
+}) {
+  return (
+    <details
+      className="mb-2 rounded-md border border-border/70 bg-background/70 p-2 text-xs text-muted-foreground group"
+    >
+      <summary className="flex cursor-pointer select-none items-center gap-2">
+        <Code2 className="size-3" />
+        <span className="font-medium">Tool Output</span>
+        <span className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{toolCallId}</span>
       </summary>
       <div className="mt-2 overflow-hidden rounded bg-muted/50 p-2">
-        {isValidJson && parsedData !== null ? (
-          <div className="font-mono text-[11px] leading-relaxed max-h-96 overflow-auto">
-            <ExpandableJsonValue value={parsedData} />
-          </div>
+        {typeof content === 'string' ? (
+          <ExpandableStringValue value={content} />
         ) : (
-          <pre className="text-[10px] leading-tight whitespace-pre-wrap break-all overflow-auto max-h-60">
-            {displayContent || (isStreaming ? 'Waiting for tool data...' : 'No data')}
-          </pre>
+          <div className="font-mono text-[11px] leading-relaxed max-h-96 overflow-auto">
+            <ExpandableJsonValue value={content as JsonValue} />
+          </div>
         )}
       </div>
     </details>
@@ -189,8 +213,8 @@ export function MessageList({ messages }: MessageListProps) {
     <div className="space-y-4 py-6">
       {messages.map((message) => {
         const isAssistant = message.role === 'assistant'
-        const isTool = message.type === 'tool_call_req' || message.type === 'tool_call_resp'
-        const isReasoning = message.type === 'reasoning'
+        const isTool = message.role === 'tool'
+        const isReasoning = message.role === 'assistant' && Boolean(message.reasoning)
         const isStreaming = message.id.startsWith('__streaming__')
 
         return (
@@ -206,7 +230,7 @@ export function MessageList({ messages }: MessageListProps) {
 
             <div
               className={`max-w-[70ch] rounded-xl border px-4 py-3 text-sm leading-6 ${
-                isAssistant
+                isAssistant || isTool
                   ? isReasoning || isTool
                     ? 'border-border/50 bg-muted/30 text-muted-foreground'
                     : 'border-border bg-card text-card-foreground'
@@ -219,23 +243,23 @@ export function MessageList({ messages }: MessageListProps) {
                     <Brain className={`size-3 ${isStreaming ? 'animate-pulse' : ''}`} />
                     <span className="opacity-70">Reasoning</span>
                   </summary>
-                  {message.content && (
+                  {message.role === 'assistant' && message.reasoning && (
                     <div className="mt-1 border-l-2 border-border/40 pl-3 text-xs italic opacity-80 overflow-hidden prose prose-sm max-w-none prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.reasoning}</ReactMarkdown>
                     </div>
                   )}
                 </details>
               )}
 
-              {isTool && (
-                <ToolCallDisplay 
-                  content={message.content} 
-                  type={message.type!} 
-                  isStreaming={isStreaming} 
-                />
+              {message.role === 'assistant' && (
+                <ToolCallsDisplay toolCalls={message.toolCalls} isStreaming={isStreaming} />
               )}
 
-              {!isTool && !isReasoning && (
+              {message.role === 'tool' && (
+                <ToolResultDisplay toolCallId={message.toolCallId} content={message.content} />
+              )}
+
+              {message.role !== 'tool' && (
                 <>
                   {isAssistant ? (
                     <div className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 overflow-hidden prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap">

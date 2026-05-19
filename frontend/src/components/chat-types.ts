@@ -1,12 +1,31 @@
-export type Role = 'user' | 'assistant'
-export type MessageType = 'tool_call_req' | 'tool_call_resp' | 'reasoning' | 'content'
+export type Role = 'user' | 'assistant' | 'tool'
 
-export type ChatMessage = {
+export type ToolCall = {
   id: string
-  role: Role
-  type?: MessageType
-  content: string
-  reasoning?: string
+  function: {
+    name: string
+    arguments: unknown
+  }
 }
+
+export type ChatMessage =
+  | {
+      id: string
+      role: 'user'
+      content: string
+    }
+  | {
+      id: string
+      role: 'assistant'
+      content: string
+      reasoning?: string
+      toolCalls?: ToolCall[]
+    }
+  | {
+      id: string
+      role: 'tool'
+      content: unknown
+      toolCallId: string
+    }
 
 export type ModelSource = string
