@@ -220,7 +220,7 @@ async def generate_stream(
         while True:
             async for event, disconnected in handle_llm_stream(
                 llm=llm,
-                context=context,
+                context=context[:],  # shallow copy to test for multiple calls
                 model=model,
                 web_access=web_access,
                 is_disconnected=is_disconnected,

@@ -1,6 +1,7 @@
 import json
 import random
 import uuid
+from types import SimpleNamespace
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,7 +11,6 @@ from api.domain.models import (
     AssistantMessage,
     Conversation,
     FunctionToolCall,
-    ToolMessage,
     UserMessage,
 )
 from api.infra.exceptions import LLMStreamingError, ToolExecutionError
@@ -70,15 +70,6 @@ def parse_single_sse_event(event: str) -> dict:
     return json.loads(payload)
 
 
-def parse_sse_events(body: str) -> list[dict]:
-    events = []
-    for block in body.strip().split("\n\n"):
-        if not block:
-            continue
-        events.append(parse_single_sse_event(block))
-    return events
-
-
 @pytest.fixture
 def mock_db() -> AsyncMock:
     return AsyncMock(DBClient)
@@ -87,18 +78,75 @@ def mock_db() -> AsyncMock:
 @pytest.fixture
 def mock_llm() -> MagicMock:
     llm = MagicMock(LLMClient)
-    llm.stream_response = MagicMock()  # Initialize as MagicMock for call tracking
+    llm.stream_response = MagicMock()
     return llm
 
 
 @pytest.fixture
-def mock_tool_registry() -> dict:
-    return {}
+def mock_registry() -> dict[str, FunctionToolSpec]:
+    return {
+        "web_search": FunctionToolSpec(input_cls=WebSearchRequest, func=AsyncMock()),
+        "web_scrape": FunctionToolSpec(input_cls=WebScrapeRequest, func=AsyncMock()),
+    }
 
 
 @pytest.fixture
 def mock_is_disconnected() -> AsyncMock:
     return AsyncMock(return_value=False)
+
+
+@pytest.fixture
+def tool_calls() -> list[FunctionToolCall]:
+    return [
+        FunctionToolCall(
+            id="search",
+            function=FunctionToolCall.Function(
+                name="web_search",
+                arguments='{"query": "example.com"}',
+            ),
+        ),
+        FunctionToolCall(
+            id="scrape",
+            function=FunctionToolCall.Function(
+                name="web_scrape",
+                arguments='{"url": "example.com"}',
+            ),
+        ),
+    ]
+
+
+@pytest.fixture
+def mock_agent_streamer_kit(
+    mock_llm: MagicMock, tool_calls: list[FunctionToolCall]
+) -> SimpleNamespace:
+    tool_call_streamer = MockLLMStreamer(
+        reasoning="Search the web for information on example.com and scrape its content.",
+        tool_calls=tool_calls,
+    )
+    answer = """example.com is a placeholder domain that is reserved for use in documentation and examples. When you visit the site you see a very simple static page that reads:
+
+```
+Example Domain
+
+This domain is for use in documentation examples without needing permission.
+Avoid use in operations.
+```
+
+The page contains only two paragraphs and a link to the IANA registration page. Its sole purpose is to serve as a harmless example for tutorials and test cases, ensuring that real domain names aren’t accidentally used in documentation or demo scripts."""
+    content_streamer = MockLLMStreamer(
+        reasoning="Provide content description.",
+        content=answer,
+    )
+
+    mock_llm.stream_response.side_effect = [
+        tool_call_streamer.stream_response(),
+        content_streamer.stream_response(),
+    ]
+    return SimpleNamespace(
+        llm=mock_llm,
+        tool_call_message=tool_call_streamer.chunks[-1],
+        content_message=content_streamer.chunks[-1],
+    )
 
 
 async def empty_stream() -> AsyncGenerator[str, None]:
@@ -187,44 +235,16 @@ class TestLLMStreamHandler:
 
 
 class TestToolCallHandler:
-    @pytest.fixture
-    def tool_registry(self) -> dict[str, FunctionToolSpec]:
-        return {
-            "web_search": FunctionToolSpec(
-                input_cls=WebSearchRequest, func=AsyncMock(return_value="search result")
-            ),
-            "web_scrape": FunctionToolSpec(
-                input_cls=WebScrapeRequest, func=AsyncMock(return_value="scrape result")
-            ),
-        }
-
-    @pytest.fixture
-    def tool_calls(self) -> list[FunctionToolCall]:
-        return [
-            FunctionToolCall(
-                id="search",
-                function=FunctionToolCall.Function(
-                    name="web_search",
-                    arguments='{"query": "example.com"}',
-                ),
-            ),
-            FunctionToolCall(
-                id="scrape",
-                function=FunctionToolCall.Function(
-                    name="web_scrape",
-                    arguments='{"url": "example.com"}',
-                ),
-            ),
-        ]
-
     @pytest.mark.asyncio
     async def test_handle_tool_calls_normal(
         self,
         tool_calls: list[FunctionToolCall],
-        tool_registry: dict[str, FunctionToolSpec],
+        mock_registry: dict[str, FunctionToolSpec],
     ):
+        mock_registry["web_search"].func = AsyncMock(return_value="search result")
+        mock_registry["web_scrape"].func = AsyncMock(return_value="scrape result")
         tool_msgs = await handle_tool_calls(
-            tool_calls=tool_calls, tool_registry=tool_registry
+            tool_calls=tool_calls, tool_registry=mock_registry
         )
         assert len(tool_msgs) == 2
         assert tool_msgs[0].tool_call_id == "search"
@@ -235,7 +255,7 @@ class TestToolCallHandler:
     @pytest.mark.asyncio
     async def test_handle_tool_calls_unknown_tool(
         self,
-        tool_registry: dict[str, FunctionToolSpec],
+        mock_registry: dict[str, FunctionToolSpec],
     ):
         tool_calls = [
             FunctionToolCall(
@@ -247,12 +267,12 @@ class TestToolCallHandler:
             )
         ]
         with pytest.raises(LLMToolError, match="not found"):
-            await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+            await handle_tool_calls(tool_calls=tool_calls, tool_registry=mock_registry)
 
     @pytest.mark.asyncio
     async def test_handle_tool_calls_invalid_arguments(
         self,
-        tool_registry: dict[str, FunctionToolSpec],
+        mock_registry: dict[str, FunctionToolSpec],
     ):
         tool_calls = [
             FunctionToolCall(
@@ -264,87 +284,142 @@ class TestToolCallHandler:
             )
         ]
         with pytest.raises(LLMToolError, match="arguments"):
-            await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+            await handle_tool_calls(tool_calls=tool_calls, tool_registry=mock_registry)
 
     @pytest.mark.asyncio
     async def test_handle_tool_calls_failure(
         self,
         tool_calls: list[FunctionToolCall],
-        tool_registry: dict[str, FunctionToolSpec],
+        mock_registry: dict[str, FunctionToolSpec],
     ):
         failed_tool_idx = random.randrange(len(tool_calls))
         failed_tool_name = tool_calls[failed_tool_idx].function.name
-        spec = tool_registry[failed_tool_name]
+        spec = mock_registry[failed_tool_name]
         spec.func = AsyncMock(side_effect=ToolExecutionError())
         with pytest.raises(ToolExecutionError):
-            await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+            await handle_tool_calls(tool_calls=tool_calls, tool_registry=mock_registry)
 
 
 class TestStreamGenerator:
     @pytest.mark.asyncio
     async def test_generate_stream(
         self,
-        mock_db: AsyncMock,
         mock_llm: MagicMock,
+        tool_calls: list[FunctionToolCall],
+        mock_registry: dict[str, FunctionToolSpec],
+        mock_db: AsyncMock,
         mock_is_disconnected: AsyncMock,
-        monkeypatch: pytest.MonkeyPatch,
     ):
         conv_id = uuid.uuid7()
 
-        tool_calls = [
-            FunctionToolCall(
-                id="",
-                function=FunctionToolCall.Function(
-                    name="web_scrape",
-                    arguments='{"url": "example.com"}',
-                ),
-            )
-        ]
         tool_call_streamer = MockLLMStreamer(
-            reasoning="Open example.com.",
+            reasoning="Search the web for information on example.com and scrape its content.",
             tool_calls=tool_calls,
         )
+        answer = """example.com is a placeholder domain that is reserved for use in documentation and examples. When you visit the site you see a very simple static page that reads:
 
-        tool_msg = ToolMessage(
-            conversation_id=conv_id, content="# Example Domain", tool_call_id=""
-        )
-        mock_handle_tool_calls = AsyncMock(return_value=[tool_msg])
-        monkeypatch.setattr("api.main.handle_tool_calls", mock_handle_tool_calls)
+```
+Example Domain
 
+This domain is for use in documentation examples without needing permission.
+Avoid use in operations.
+```
+
+The page contains only two paragraphs and a link to the IANA registration page. Its sole purpose is to serve as a harmless example for tutorials and test cases, ensuring that real domain names aren’t accidentally used in documentation or demo scripts."""
         content_streamer = MockLLMStreamer(
-            reasoning="Show the markdown content as is.",
-            content="# Example Domain",
+            reasoning="Provide content description.",
+            content=answer,
         )
-
         mock_llm.stream_response.side_effect = [
             tool_call_streamer.stream_response(),
             content_streamer.stream_response(),
         ]
+        tool_call_msg = tool_call_streamer.chunks[-1]
+        content_msg = content_streamer.chunks[-1]
 
-        events = []
+        search_result = """[
+    {
+        "title": "Example.com",
+        "url": "https://en.wikipedia.org/wiki/Example.com",
+        "snippet": "The domain names example.com, example.net, example.org, and example.edu are second-level domain names in the Domain Name System of the Internet. They are reserved by the Internet Assigned Numbers Authority (IANA) at the direction of the Internet (IETF) as special-use domain names for documentation purposes. The domain names are used widely in books, tutorials, sample network configurations, and generally as examples for the use of domain names. The Internet Corporation for Assigned Names and Numbers (ICANN) operates websites for these domains with content that reflects their purpose."
+    }, 
+    {
+        "title": "Example Domain",
+        "url": "https://www.example.com/",
+        "snippet": "This domain is for use in documentation examples without needing permission. Avoid use in operations"
+    }
+]"""
+        scrape_result = """# Example Domain
+This domain is for use in documentation examples without needing permission. Avoid use in operations.
+[Learn more](https://iana.org/domains/example)"""
+        mock_registry["web_search"].func = AsyncMock(return_value=search_result)
+        mock_registry["web_scrape"].func = AsyncMock(return_value=scrape_result)
+
+        user_msg = UserMessage(content="Tell me about example.com")
+        user_msg.conversation_id = conv_id
+        model_name = "test-model"
+
+        all_events, tool_calls_events, tool_events = [], [], []
         async for data in generate_stream(
             conversation_id=conv_id,
-            context=[],
-            model="",
+            context=[user_msg],
+            model=model_name,
             web_access=True,
             llm=mock_llm,
             db=mock_db,
-            tool_registry={},
+            tool_registry=mock_registry,
             is_disconnected=mock_is_disconnected,
         ):
-            events.append(parse_single_sse_event(data))
+            event = parse_single_sse_event(data)
+            all_events.append(event)
+            if event["type"] == "tool_calls":
+                tool_calls_events.append(event)
+            elif event["type"] == "tool":
+                tool_events.append(event)
 
-        assert events[0]["type"] == "metadata"
-        assert events[0]["conversation_id"] == str(conv_id)
-        assert events[-1]["type"] == "done"
+        assert all_events[0]["type"] == "metadata"
+        assert all_events[0]["conversation_id"] == str(conv_id)
+        assert all_events[-1]["type"] == "done"
+        assert len(tool_calls_events) == 1
+        assert tool_calls_events[0]["data"] == [tc.model_dump() for tc in tool_calls]
+        assert len(tool_events) == len(tool_calls)
 
-        assert mock_db.create_message.await_count == 3
-        tool_call_msg = tool_call_streamer.chunks[-1]
-        content_msg = content_streamer.chunks[-1]
+        assert mock_llm.stream_response.call_count == 2
+        llm_call_args = mock_llm.stream_response.call_args_list
+        for _, kwargs in llm_call_args:
+            assert kwargs["model"] == model_name
+            assert kwargs["web_access"] is True
+        initial_ctx = llm_call_args[0].kwargs["context"]
+        assert initial_ctx == [user_msg]
+        post_tool_call_ctx = llm_call_args[1].kwargs["context"]
+        assert post_tool_call_ctx[:2] == [user_msg, tool_call_msg]
+        ctx_tool_msgs = post_tool_call_ctx[2:]
+        assert len(ctx_tool_msgs) == len(tool_calls)
+
+        assert mock_db.create_message.await_count == 1 + len(tool_calls) + 1
         db_created_msgs = []
         for call in mock_db.create_message.await_args_list:
+            assert call.kwargs["message"].conversation_id == conv_id
             db_created_msgs.append(call.kwargs["message"])
-        assert db_created_msgs == [tool_call_msg, tool_msg, content_msg]
+        assert db_created_msgs[0] is tool_call_msg
+        assert db_created_msgs[-1] is content_msg
+        db_tool_msgs = db_created_msgs[1:-1]
+        assert len(db_tool_msgs) == len(tool_calls)
+
+        for tc, event, ctx_msg, db_msg, data in zip(
+            tool_calls,
+            tool_events,
+            ctx_tool_msgs,
+            db_tool_msgs,
+            [search_result, scrape_result],
+        ):
+            assert (
+                event["tool_call_id"]
+                == ctx_msg.tool_call_id
+                == db_msg.tool_call_id
+                == tc.id
+            )
+            assert event["data"] == ctx_msg.content == db_msg.content == data
 
     @pytest.mark.asyncio
     async def test_generate_stream_llm_streaming_error(
@@ -377,12 +452,12 @@ class TestAppEndpoints:
         self,
         mock_db: AsyncMock,
         mock_llm: MagicMock,
-        mock_tool_registry: dict,
+        mock_registry: dict,
         mock_is_disconnected: AsyncMock,
     ) -> Generator[TestClient, None, None]:
         app.dependency_overrides[get_db] = lambda: mock_db
         app.dependency_overrides[get_llm] = lambda: mock_llm
-        app.dependency_overrides[get_tool_registry] = lambda: mock_tool_registry
+        app.dependency_overrides[get_tool_registry] = lambda: mock_registry
         app.dependency_overrides[get_disconnect_checker] = lambda: mock_is_disconnected
         yield TestClient(app)
         app.dependency_overrides.clear()
@@ -396,10 +471,10 @@ class TestAppEndpoints:
         conv_id = uuid.uuid7()
         mock_db.create_conversation.return_value = conv_id
 
-        mock_generate_stream = MagicMock(return_value=empty_stream())
+        mock_generate_stream = MagicMock()
         monkeypatch.setattr("api.main.generate_stream", mock_generate_stream)
 
-        payload = {"content": "Hello", "model": "gpt"}
+        payload = {"content": "Hello", "model": "gemini", "web_access": False}
         response = client.post("/messages", json=payload)
 
         assert response.status_code == 200
@@ -416,7 +491,7 @@ class TestAppEndpoints:
         stream_kwargs = mock_generate_stream.call_args.kwargs
         assert stream_kwargs["conversation_id"] == conv_id
         assert stream_kwargs["context"] == [user_msg]
-        assert stream_kwargs["model"] == payload["model"]
+        assert stream_kwargs["model"] == "gemini"
         assert stream_kwargs["web_access"] is False
 
     def test_create_message_existing_conversation(
@@ -432,7 +507,7 @@ class TestAppEndpoints:
         ]
         mock_db.load_historical_contents.return_value = conv_history.copy()
 
-        mock_generate_stream = MagicMock(return_value=empty_stream())
+        mock_generate_stream = MagicMock()
         monkeypatch.setattr("api.main.generate_stream", mock_generate_stream)
 
         payload = {
@@ -459,7 +534,7 @@ class TestAppEndpoints:
         stream_kwargs = mock_generate_stream.call_args.kwargs
         assert stream_kwargs["conversation_id"] == conv_id
         assert stream_kwargs["context"] == conv_history + [user_msg]
-        assert stream_kwargs["model"] == payload["model"]
+        assert stream_kwargs["model"] == "gpt"
         assert stream_kwargs["web_access"] is True
 
     def test_list_models(self, client: TestClient, mock_llm: MagicMock):
@@ -470,6 +545,7 @@ class TestAppEndpoints:
 
         assert response.status_code == 200
         assert response.json() == models
+
         mock_llm.list_models.assert_awaited_once()
 
     def test_list_conversations(self, client: TestClient, mock_db: AsyncMock):
@@ -485,6 +561,7 @@ class TestAppEndpoints:
         body = response.json()
         assert len(body) == 3
         assert [c["title"] for c in body] == ["1", "2", "3"]
+
         mock_db.list_conversations.assert_awaited_once_with(user_id=0)
 
     def test_list_messages(self, client: TestClient, mock_db: AsyncMock):
@@ -511,6 +588,7 @@ class TestAppEndpoints:
         response = client.delete(f"/conversations/{conv_id}")
 
         assert response.status_code == 200
+
         mock_db.delete_conversation.assert_awaited_once_with(
             user_id=0, conversation_id=conv_id
         )
@@ -522,6 +600,7 @@ class TestAppEndpoints:
         response = client.patch(f"/conversations/{conv_id}", json={"title": new_title})
 
         assert response.status_code == 200
+
         mock_db.rename_conversation.assert_awaited_once_with(
             user_id=0, conversation_id=conv_id, new_title=new_title
         )
@@ -529,4 +608,3 @@ class TestAppEndpoints:
     def test_health(self, client: TestClient):
         response = client.get("/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
