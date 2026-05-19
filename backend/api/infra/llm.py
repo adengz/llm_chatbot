@@ -13,6 +13,7 @@ from api.domain.models import (
     FunctionToolCall,
     Message,
 )
+from api.infra.exceptions import LLMStreamingError, ModelListError, reraise_as
 
 
 class AsyncOpenAIClient:
@@ -25,10 +26,12 @@ class AsyncOpenAIClient:
         self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
         self.tools = tools or []
 
+    @reraise_as(ModelListError)
     async def list_models(self) -> list[str]:
         response = await self.client.models.list()
         return sorted([model.id for model in response.data])
 
+    @reraise_as(LLMStreamingError)
     async def stream_response(
         self, context: list[Message], model: str, web_access: bool = False
     ) -> AsyncGenerator[AgentStreamChunk | AssistantMessage, None]:

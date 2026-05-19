@@ -7,6 +7,7 @@ from api.domain.models import (
     Message,
     UserMessage,
 )
+from api.infra.exceptions import LLMStreamingError
 from api.infra.llm import AsyncOpenAIClient
 from api.infra.tools import WebScrapeRequest
 from openai import pydantic_function_tool
@@ -93,13 +94,9 @@ class TestAsyncOllamaClient:
 
     @pytest.mark.asyncio
     async def test_stream_response_error(self, ollama_client: AsyncOpenAIClient):
-        chunks = []
-        async for chunk in ollama_client.stream_response(
-            context=[UserMessage(role="user", content=SIMPLE_PROPMT)],
-            model="llama5",
-        ):
-            chunks.append(chunk)
-
-        assert len(chunks) == 1
-        assert chunks[-1].type == "error"
-        assert chunks[-1].status_code == 404
+        with pytest.raises(LLMStreamingError):
+            async for _ in ollama_client.stream_response(
+                context=[UserMessage(role="user", content=SIMPLE_PROPMT)],
+                model="llama5",
+            ):
+                pass

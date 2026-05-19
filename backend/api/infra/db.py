@@ -16,6 +16,7 @@ from api.domain.models import (
     ToolMessage,
     UserMessage,
 )
+from api.infra.exceptions import DatabaseError
 
 tool_calls_adapter = TypeAdapter(list[FunctionToolCall])
 
@@ -34,10 +35,14 @@ class DynamoDBClient:
 
     @asynccontextmanager
     async def get_resource(self):
-        async with self.session.resource(
-            "dynamodb", endpoint_url=self._aws_endpoint_url
-        ) as resource:
-            yield resource
+        try:
+            async with self.session.resource(
+                "dynamodb", endpoint_url=self._aws_endpoint_url
+            ) as resource:
+                yield resource
+        except Exception as exc:
+            logger.exception(f"DynamoDB operation failed: {exc}")
+            raise DatabaseError() from exc
 
     async def create_conversation(self, user_id: int, title: str) -> uuid.UUID:
         conversation_id = uuid.uuid7()

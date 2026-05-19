@@ -7,7 +7,7 @@ from typing import AsyncGenerator, Awaitable, Callable, Generic, Protocol, TypeV
 
 from fastapi import Body, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from openai import pydantic_function_tool
 from pydantic import BaseModel, ValidationError
@@ -22,6 +22,7 @@ from api.domain.models import (
     ToolMessage,
     UserMessage,
 )
+from api.infra.exceptions import InfrastructureException
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -364,3 +365,14 @@ async def rename_conversation(
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.exception_handler(InfrastructureException)
+async def infra_error_handler(request: Request, exc: InfrastructureException):
+    logger.error(
+        "Infrastructure error while handling {} {}: {}",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

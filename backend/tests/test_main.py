@@ -13,7 +13,7 @@ from api.domain.models import (
     FunctionToolCall,
     UserMessage,
 )
-from api.infra.exceptions import LLMStreamingError, ToolExecutionError
+from api.infra.exceptions import LLMStreamingError, ModelListError, ToolExecutionError
 from api.infra.tools import WebScrapeRequest, WebSearchRequest
 from api.main import (
     SSE_PREFIX,
@@ -608,3 +608,13 @@ class TestAppEndpoints:
     def test_health(self, client: TestClient):
         response = client.get("/health")
         assert response.status_code == 200
+
+    def test_infra_error_handler(self, client: TestClient, mock_llm: MagicMock):
+        mock_llm.list_models.side_effect = ModelListError()
+
+        response = client.get("/models")
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "Internal server error"}
+
+        mock_llm.list_models.assert_awaited_once()

@@ -5,6 +5,8 @@ from crawl4ai import AsyncWebCrawler
 from ddgs import DDGS
 from pydantic import BaseModel, Field
 
+from api.infra.exceptions import ToolExecutionError, reraise_as
+
 
 class WebSearchRequest(BaseModel):
     """Use this tool to find up-to-date information, news, or specific facts from the web to answer user queries."""
@@ -32,6 +34,7 @@ def ddgs_search(query: str) -> list[dict]:
         return ddgs.text(query, max_results=3)
 
 
+@reraise_as(ToolExecutionError)
 async def ddgs_web_search(request: WebSearchRequest) -> str:
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, ddgs_search, request.query)
@@ -40,6 +43,7 @@ async def ddgs_web_search(request: WebSearchRequest) -> str:
     )
 
 
+@reraise_as(ToolExecutionError)
 async def crawl4ai_web_scrape(request: WebScrapeRequest) -> str:
     async with AsyncWebCrawler() as crawler:
         result = await crawler.arun(request.url)
