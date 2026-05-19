@@ -10,16 +10,20 @@ from api.domain.models import (
     AssistantMessage,
     Conversation,
     FunctionToolCall,
+    ToolMessage,
     UserMessage,
 )
-from api.infra.exceptions import ToolExecutionError
+from api.infra.exceptions import LLMStreamingError, ToolExecutionError
 from api.infra.tools import WebScrapeRequest, WebSearchRequest
 from api.main import (
+    SSE_PREFIX,
+    SSE_SUFFIX,
     DBClient,
     FunctionToolSpec,
     LLMClient,
     LLMToolError,
     app,
+    generate_stream,
     get_db,
     get_disconnect_checker,
     get_llm,
@@ -60,14 +64,18 @@ class MockLLMStreamer:
             yield chunk
 
 
+def parse_single_sse_event(event: str) -> dict:
+    assert event.startswith(SSE_PREFIX)
+    payload = event.removeprefix(SSE_PREFIX).removesuffix(SSE_SUFFIX)
+    return json.loads(payload)
+
+
 def parse_sse_events(body: str) -> list[dict]:
     events = []
     for block in body.strip().split("\n\n"):
         if not block:
             continue
-        assert block.startswith("data: ")
-        payload = block.removeprefix("data: ")
-        events.append(json.loads(payload))
+        events.append(parse_single_sse_event(block))
     return events
 
 
@@ -270,6 +278,97 @@ class TestToolCallHandler:
         spec.func = AsyncMock(side_effect=ToolExecutionError())
         with pytest.raises(ToolExecutionError):
             await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+
+
+class TestStreamGenerator:
+    @pytest.mark.asyncio
+    async def test_generate_stream(
+        self,
+        mock_db: AsyncMock,
+        mock_llm: MagicMock,
+        mock_is_disconnected: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        conv_id = uuid.uuid7()
+
+        tool_calls = [
+            FunctionToolCall(
+                id="",
+                function=FunctionToolCall.Function(
+                    name="web_scrape",
+                    arguments='{"url": "example.com"}',
+                ),
+            )
+        ]
+        tool_call_streamer = MockLLMStreamer(
+            reasoning="Open example.com.",
+            tool_calls=tool_calls,
+        )
+
+        tool_msg = ToolMessage(
+            conversation_id=conv_id, content="# Example Domain", tool_call_id=""
+        )
+        mock_handle_tool_calls = AsyncMock(return_value=[tool_msg])
+        monkeypatch.setattr("api.main.handle_tool_calls", mock_handle_tool_calls)
+
+        content_streamer = MockLLMStreamer(
+            reasoning="Show the markdown content as is.",
+            content="# Example Domain",
+        )
+
+        mock_llm.stream_response.side_effect = [
+            tool_call_streamer.stream_response(),
+            content_streamer.stream_response(),
+        ]
+
+        events = []
+        async for data in generate_stream(
+            conversation_id=conv_id,
+            context=[],
+            model="",
+            web_access=True,
+            llm=mock_llm,
+            db=mock_db,
+            tool_registry={},
+            is_disconnected=mock_is_disconnected,
+        ):
+            events.append(parse_single_sse_event(data))
+
+        assert events[0]["type"] == "metadata"
+        assert events[0]["conversation_id"] == str(conv_id)
+        assert events[-1]["type"] == "done"
+
+        assert mock_db.create_message.await_count == 3
+        tool_call_msg = tool_call_streamer.chunks[-1]
+        content_msg = content_streamer.chunks[-1]
+        db_created_msgs = []
+        for call in mock_db.create_message.await_args_list:
+            db_created_msgs.append(call.kwargs["message"])
+        assert db_created_msgs == [tool_call_msg, tool_msg, content_msg]
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_llm_streaming_error(
+        self,
+        mock_llm: MagicMock,
+        mock_is_disconnected: AsyncMock,
+    ):
+        mock_llm.stream_response.side_effect = LLMStreamingError()
+
+        events = []
+        async for data in generate_stream(
+            conversation_id=uuid.uuid7(),
+            context=[],
+            model="",
+            web_access=True,
+            llm=mock_llm,
+            db=MagicMock(),
+            tool_registry={},
+            is_disconnected=mock_is_disconnected,
+        ):
+            events.append(parse_single_sse_event(data))
+
+        assert len(events) == 1 + 1
+        assert events[-1]["type"] == "error"
 
 
 class TestAppEndpoints:

@@ -70,4 +70,3 @@ class AgentStreamChunk(BaseModel):
     delta: str | None = None
     data: SerializeAsAny[list[FunctionToolCall] | str] | None = None
     exception: str | None = None
-    status_code: int = 200

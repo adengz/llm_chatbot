@@ -193,8 +193,12 @@ async def handle_tool_calls(
     return messages
 
 
+SSE_PREFIX = "data: "
+SSE_SUFFIX = "\n\n"
+
+
 def sse_event(model: AgentStreamChunk) -> str:
-    return f"data: {model.model_dump_json()}\n\n"
+    return SSE_PREFIX + model.model_dump_json(exclude_none=True) + SSE_SUFFIX
 
 
 async def generate_stream(
@@ -258,9 +262,7 @@ async def generate_stream(
             context.extend(tool_msgs)
             assistant_msg = None
     except Exception as exc:
-        final_chunk = AgentStreamChunk(
-            type="error", exception=str(exc), status_code=500
-        )
+        final_chunk = AgentStreamChunk(type="error", exception=str(exc))
 
     if not disconnected:
         yield sse_event(final_chunk)
