@@ -105,16 +105,12 @@ class DynamoDBHarness:
         await self.create_tables()
 
     async def insert_conversation(self, user_id: int = 0, title: str = "") -> uuid.UUID:
-        conversation_id = uuid.uuid7()
-        item = {
-            "user_id": user_id,
-            "conversation_id": str(conversation_id),
-            "title": title,
-        }
+        conv_id = uuid.uuid7()
+        item = {"user_id": user_id, "conversation_id": str(conv_id), "title": title}
         async with self.client.get_resource() as resource:
             table = await resource.Table(self.client._conversations_table)
             await table.put_item(Item=item)
-        return conversation_id
+        return conv_id
 
     async def fetch_raw_conversation(
         self, user_id: int, conversation_id: uuid.UUID
@@ -370,30 +366,28 @@ class DBClientContract:
     @pytest.mark.asyncio
     async def test_create_conversation(self, client: DBClient, harness: DBHarness):
         user_id = 0
-        conversation_id = await client.create_conversation(user_id, "Hello World")
+        conv_id = await client.create_conversation(user_id, "Hello World")
 
-        conversation = await harness.fetch_raw_conversation(user_id, conversation_id)
+        conversation = await harness.fetch_raw_conversation(user_id, conv_id)
         assert conversation is not None
         assert conversation["user_id"] == user_id
-        assert conversation["conversation_id"] == str(conversation_id)
+        assert conversation["conversation_id"] == str(conv_id)
         assert conversation["title"] == "Hello World"
 
     @pytest.mark.asyncio
     async def test_rename_conversation(self, client: DBClient, harness: DBHarness):
         user_id = 0
-        conversation_id = await harness.insert_conversation(user_id, "Old Title")
+        conv_id = await harness.insert_conversation(user_id, "Old Title")
 
-        conversation = await harness.fetch_raw_conversation(user_id, conversation_id)
+        conversation = await harness.fetch_raw_conversation(user_id, conv_id)
         assert conversation is not None
         assert conversation["title"] == "Old Title"
 
-        await client.rename_conversation(user_id, conversation_id, "New Title")
+        await client.rename_conversation(user_id, conv_id, "New Title")
 
-        updated_conversation = await harness.fetch_raw_conversation(
-            user_id, conversation_id
-        )
+        updated_conversation = await harness.fetch_raw_conversation(user_id, conv_id)
         assert updated_conversation is not None
-        assert updated_conversation["conversation_id"] == str(conversation_id)
+        assert updated_conversation["conversation_id"] == str(conv_id)
         assert updated_conversation["title"] == "New Title"
 
     @pytest.mark.asyncio
@@ -424,7 +418,7 @@ class DBClientContract:
 
     @pytest.mark.asyncio
     async def test_create_message_user(self, client: DBClient, harness: DBHarness):
-        conv_id = uuid.uuid1()
+        conv_id = uuid.uuid7()
 
         msg = UserMessage(conversation_id=conv_id, content="User content")
         msg_key = msg.created_at
@@ -440,7 +434,7 @@ class DBClientContract:
     async def test_create_message_assistant_content(
         self, client: DBClient, harness: DBHarness
     ):
-        conv_id = uuid.uuid1()
+        conv_id = uuid.uuid7()
 
         msg = AssistantMessage(conversation_id=conv_id, content="Assistant content")
         msg_key = msg.created_at
@@ -458,7 +452,7 @@ class DBClientContract:
     async def test_create_message_assistant_reasoning_and_tool_calls(
         self, client: DBClient, harness: DBHarness
     ):
-        conv_id = uuid.uuid1()
+        conv_id = uuid.uuid7()
 
         tool_calls = [
             FunctionToolCall(
@@ -486,7 +480,7 @@ class DBClientContract:
 
     @pytest.mark.asyncio
     async def test_create_message_tool(self, client: DBClient, harness: DBHarness):
-        conv_id = uuid.uuid1()
+        conv_id = uuid.uuid7()
 
         msg = ToolMessage(
             conversation_id=conv_id, content="Example Domain...", tool_call_id="call-0"

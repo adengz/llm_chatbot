@@ -64,7 +64,6 @@ class AgentStreamChunk(BaseModel):
         "content",
         "done",
         "error",
-        "warning",
     ]
     conversation_id: uuid.UUID | None = None
     tool_call_id: str | None = None

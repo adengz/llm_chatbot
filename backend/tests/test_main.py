@@ -1,4 +1,5 @@
 import json
+import random
 import uuid
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
@@ -11,12 +12,20 @@ from api.domain.models import (
     FunctionToolCall,
     UserMessage,
 )
+from api.infra.exceptions import ToolExecutionError
+from api.infra.tools import WebScrapeRequest, WebSearchRequest
 from api.main import (
     DBClient,
+    FunctionToolSpec,
     LLMClient,
+    LLMToolError,
     app,
     get_db,
+    get_disconnect_checker,
     get_llm,
+    get_tool_registry,
+    handle_llm_stream,
+    handle_tool_calls,
 )
 from fastapi.testclient import TestClient
 
@@ -84,21 +93,275 @@ def mock_is_disconnected() -> AsyncMock:
     return AsyncMock(return_value=False)
 
 
+async def empty_stream() -> AsyncGenerator[str, None]:
+    yield ""
+
+
+class TestLLMStreamHandler:
+    @pytest.fixture
+    def streamer(self) -> MockLLMStreamer:
+        return MockLLMStreamer(
+            content="Hello! How can I help you today?", reasoning="Need a greeting."
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_llm_stream_not_disconnected(
+        self,
+        mock_llm: MagicMock,
+        mock_is_disconnected: AsyncMock,
+        streamer: MockLLMStreamer,
+    ):
+        mock_llm.stream_response.side_effect = streamer.stream_response
+
+        event, count = None, 0
+        async for event, disconnected in handle_llm_stream(
+            context=[],
+            model="",
+            web_access=False,
+            llm=mock_llm,
+            is_disconnected=mock_is_disconnected,
+        ):
+            count += 1
+            assert not disconnected
+
+        assert isinstance(event, AssistantMessage)
+        assert event == streamer.chunks[-1]
+        assert count == len(streamer.chunks)
+
+    @pytest.mark.asyncio
+    async def test_handle_llm_stream_disconnected_immediately(
+        self,
+        mock_llm: MagicMock,
+        mock_is_disconnected: AsyncMock,
+        streamer: MockLLMStreamer,
+    ):
+        mock_llm.stream_response.side_effect = streamer.stream_response
+        mock_is_disconnected.side_effect = [True]
+
+        event, disconnected = None, False
+        async for event, disconnected in handle_llm_stream(
+            context=[],
+            model="",
+            web_access=False,
+            llm=mock_llm,
+            is_disconnected=mock_is_disconnected,
+        ):
+            assert disconnected
+
+        assert event is None
+
+    @pytest.mark.asyncio
+    async def test_handle_llm_stream_disconnected_in_middle(
+        self,
+        mock_llm: MagicMock,
+        mock_is_disconnected: AsyncMock,
+        streamer: MockLLMStreamer,
+    ):
+        streamed_tokens = random.randrange(1, len(streamer.chunks))
+        mock_llm.stream_response.side_effect = streamer.stream_response
+        mock_is_disconnected.side_effect = [False] * streamed_tokens + [True]
+
+        event, disconnected = None, False
+        async for event, disconnected in handle_llm_stream(
+            context=[],
+            model="",
+            web_access=False,
+            llm=mock_llm,
+            is_disconnected=mock_is_disconnected,
+        ):
+            pass
+        assert disconnected
+
+        assert isinstance(event, AssistantMessage)
+        full_msg = streamer.chunks[-1]
+        assert full_msg.content.startswith(event.content)
+        assert full_msg.reasoning.startswith(event.reasoning)
+
+
+class TestToolCallHandler:
+    @pytest.fixture
+    def tool_registry(self) -> dict[str, FunctionToolSpec]:
+        return {
+            "web_search": FunctionToolSpec(
+                input_cls=WebSearchRequest, func=AsyncMock(return_value="search result")
+            ),
+            "web_scrape": FunctionToolSpec(
+                input_cls=WebScrapeRequest, func=AsyncMock(return_value="scrape result")
+            ),
+        }
+
+    @pytest.fixture
+    def tool_calls(self) -> list[FunctionToolCall]:
+        return [
+            FunctionToolCall(
+                id="search",
+                function=FunctionToolCall.Function(
+                    name="web_search",
+                    arguments='{"query": "example.com"}',
+                ),
+            ),
+            FunctionToolCall(
+                id="scrape",
+                function=FunctionToolCall.Function(
+                    name="web_scrape",
+                    arguments='{"url": "example.com"}',
+                ),
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_calls_normal(
+        self,
+        tool_calls: list[FunctionToolCall],
+        tool_registry: dict[str, FunctionToolSpec],
+    ):
+        tool_msgs = await handle_tool_calls(
+            tool_calls=tool_calls, tool_registry=tool_registry
+        )
+        assert len(tool_msgs) == 2
+        assert tool_msgs[0].tool_call_id == "search"
+        assert tool_msgs[0].content == "search result"
+        assert tool_msgs[1].tool_call_id == "scrape"
+        assert tool_msgs[1].content == "scrape result"
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_calls_unknown_tool(
+        self,
+        tool_registry: dict[str, FunctionToolSpec],
+    ):
+        tool_calls = [
+            FunctionToolCall(
+                id="",
+                function=FunctionToolCall.Function(
+                    name="unknown",
+                    arguments="{}",
+                ),
+            )
+        ]
+        with pytest.raises(LLMToolError, match="not found"):
+            await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_calls_invalid_arguments(
+        self,
+        tool_registry: dict[str, FunctionToolSpec],
+    ):
+        tool_calls = [
+            FunctionToolCall(
+                id="",
+                function=FunctionToolCall.Function(
+                    name="web_search",
+                    arguments="",
+                ),
+            )
+        ]
+        with pytest.raises(LLMToolError, match="arguments"):
+            await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_calls_failure(
+        self,
+        tool_calls: list[FunctionToolCall],
+        tool_registry: dict[str, FunctionToolSpec],
+    ):
+        failed_tool_idx = random.randrange(len(tool_calls))
+        failed_tool_name = tool_calls[failed_tool_idx].function.name
+        spec = tool_registry[failed_tool_name]
+        spec.func = AsyncMock(side_effect=ToolExecutionError())
+        with pytest.raises(ToolExecutionError):
+            await handle_tool_calls(tool_calls=tool_calls, tool_registry=tool_registry)
+
+
 class TestAppEndpoints:
     @pytest.fixture
     def client(
         self,
         mock_db: AsyncMock,
         mock_llm: MagicMock,
-        # mock_tool_registry: dict,
-        # mock_is_disconnected: AsyncMock,
+        mock_tool_registry: dict,
+        mock_is_disconnected: AsyncMock,
     ) -> Generator[TestClient, None, None]:
         app.dependency_overrides[get_db] = lambda: mock_db
         app.dependency_overrides[get_llm] = lambda: mock_llm
-        # app.dependency_overrides[get_tool_registry] = lambda: mock_tool_registry
-        # app.dependency_overrides[get_disconnect_checker] = lambda: mock_is_disconnected
+        app.dependency_overrides[get_tool_registry] = lambda: mock_tool_registry
+        app.dependency_overrides[get_disconnect_checker] = lambda: mock_is_disconnected
         yield TestClient(app)
         app.dependency_overrides.clear()
+
+    def test_create_message_new_conversation(
+        self,
+        client: TestClient,
+        mock_db: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        conv_id = uuid.uuid7()
+        mock_db.create_conversation.return_value = conv_id
+
+        mock_generate_stream = MagicMock(return_value=empty_stream())
+        monkeypatch.setattr("api.main.generate_stream", mock_generate_stream)
+
+        payload = {"content": "Hello", "model": "gpt"}
+        response = client.post("/messages", json=payload)
+
+        assert response.status_code == 200
+        mock_db.create_conversation.assert_awaited_once_with(user_id=0, title="Hello")
+        mock_db.load_historical_contents.assert_not_awaited()
+
+        mock_db.create_message.assert_awaited_once()
+        user_msg = mock_db.create_message.await_args.kwargs["message"]
+        assert isinstance(user_msg, UserMessage)
+        assert user_msg.conversation_id == conv_id
+        assert user_msg.content == "Hello"
+
+        mock_generate_stream.assert_called_once()
+        stream_kwargs = mock_generate_stream.call_args.kwargs
+        assert stream_kwargs["conversation_id"] == conv_id
+        assert stream_kwargs["context"] == [user_msg]
+        assert stream_kwargs["model"] == payload["model"]
+        assert stream_kwargs["web_access"] is False
+
+    def test_create_message_existing_conversation(
+        self,
+        client: TestClient,
+        mock_db: AsyncMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        conv_id = uuid.uuid7()
+        conv_history = [
+            UserMessage(conversation_id=conv_id, content="Hello"),
+            AssistantMessage(conversation_id=conv_id, content="Hi there!"),
+        ]
+        mock_db.load_historical_contents.return_value = conv_history.copy()
+
+        mock_generate_stream = MagicMock(return_value=empty_stream())
+        monkeypatch.setattr("api.main.generate_stream", mock_generate_stream)
+
+        payload = {
+            "conversation_id": str(conv_id),
+            "content": "What's going on?",
+            "model": "gpt",
+            "web_access": True,
+        }
+        response = client.post("/messages", json=payload)
+
+        assert response.status_code == 200
+        mock_db.create_conversation.assert_not_awaited()
+        mock_db.load_historical_contents.assert_awaited_once_with(
+            conversation_id=conv_id
+        )
+
+        mock_db.create_message.assert_awaited_once()
+        user_msg = mock_db.create_message.await_args.kwargs["message"]
+        assert isinstance(user_msg, UserMessage)
+        assert user_msg.conversation_id == conv_id
+        assert user_msg.content == "What's going on?"
+
+        mock_generate_stream.assert_called_once()
+        stream_kwargs = mock_generate_stream.call_args.kwargs
+        assert stream_kwargs["conversation_id"] == conv_id
+        assert stream_kwargs["context"] == conv_history + [user_msg]
+        assert stream_kwargs["model"] == payload["model"]
+        assert stream_kwargs["web_access"] is True
 
     def test_list_models(self, client: TestClient, mock_llm: MagicMock):
         models = ["claude", "gemini", "gpt"]
@@ -112,15 +375,9 @@ class TestAppEndpoints:
 
     def test_list_conversations(self, client: TestClient, mock_db: AsyncMock):
         mock_db.list_conversations.return_value = [
-            Conversation(conversation_id=uuid.uuid1(), user_id=0, title="Conversation"),
-            Conversation(
-                conversation_id=uuid.uuid1(), user_id=0, title="Another conversation"
-            ),
-            Conversation(
-                conversation_id=uuid.uuid1(),
-                user_id=0,
-                title="Yet another conversation",
-            ),
+            Conversation(conversation_id=uuid.uuid7(), user_id=0, title="1"),
+            Conversation(conversation_id=uuid.uuid7(), user_id=0, title="2"),
+            Conversation(conversation_id=uuid.uuid7(), user_id=0, title="3"),
         ]
 
         response = client.get("/conversations")
@@ -128,15 +385,11 @@ class TestAppEndpoints:
         assert response.status_code == 200
         body = response.json()
         assert len(body) == 3
-        assert [c["title"] for c in body] == [
-            "Conversation",
-            "Another conversation",
-            "Yet another conversation",
-        ]
+        assert [c["title"] for c in body] == ["1", "2", "3"]
         mock_db.list_conversations.assert_awaited_once_with(user_id=0)
 
     def test_list_messages(self, client: TestClient, mock_db: AsyncMock):
-        conv_id = uuid.uuid1()
+        conv_id = uuid.uuid7()
         mock_db.scroll_messages.return_value = [
             AssistantMessage(conversation_id=conv_id, content="Hi there!"),
             UserMessage(conversation_id=conv_id, content="Hello"),
