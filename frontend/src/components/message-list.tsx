@@ -1,4 +1,4 @@
-import { Bot, User, Code2, Brain, ChevronRight } from 'lucide-react'
+import { Bot, User, Code2, Brain, ChevronRight, Wrench } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useState } from 'react'
@@ -42,8 +42,16 @@ function ExpandableStringValue({ value }: { value: string }) {
   )
 }
 
-function ExpandableJsonValue({ value, level = 0 }: { value: JsonValue; level?: number }) {
-  const [isExpanded, setIsExpanded] = useState(level < 1) // Auto-expand first level
+function ExpandableJsonValue({
+  value,
+  level = 0,
+  expandAll = false,
+}: {
+  value: JsonValue
+  level?: number
+  expandAll?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(expandAll || level < 1) // Auto-expand first level or fully expand tree
 
   if (value === null) {
     return <span className="text-amber-600">null</span>
@@ -98,7 +106,7 @@ function ExpandableJsonValue({ value, level = 0 }: { value: JsonValue; level?: n
             {value.map((item, index) => (
               <div key={index} className="text-xs">
                 <span className="text-muted-foreground">[{index}]:</span>{' '}
-                <ExpandableJsonValue value={item} level={level + 1} />
+                <ExpandableJsonValue value={item} level={level + 1} expandAll={expandAll} />
               </div>
             ))}
           </div>
@@ -132,7 +140,7 @@ function ExpandableJsonValue({ value, level = 0 }: { value: JsonValue; level?: n
               <div key={key} className="text-xs">
                 <span className="text-purple-600">"{key}"</span>
                 <span className="text-muted-foreground">:</span>{' '}
-                <ExpandableJsonValue value={value[key]} level={level + 1} />
+                <ExpandableJsonValue value={value[key]} level={level + 1} expandAll={expandAll} />
               </div>
             ))}
           </div>
@@ -146,10 +154,8 @@ function ExpandableJsonValue({ value, level = 0 }: { value: JsonValue; level?: n
 
 function ToolCallsDisplay({
   toolCalls,
-  isStreaming,
 }: {
   toolCalls: AssistantChatMessage['toolCalls']
-  isStreaming?: boolean
 }) {
   if (!toolCalls || toolCalls.length === 0) {
     return null
@@ -158,7 +164,7 @@ function ToolCallsDisplay({
   return (
     <details
       className="mb-2 rounded-md border border-border/70 bg-background/70 p-2 text-xs text-muted-foreground group"
-      open={isStreaming}
+      open
     >
       <summary className="flex cursor-pointer select-none items-center gap-2">
         <Code2 className="size-3" />
@@ -166,6 +172,7 @@ function ToolCallsDisplay({
       </summary>
       <div className="mt-2 overflow-hidden rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed max-h-96 overflow-auto">
         <ExpandableJsonValue
+          expandAll
           value={toolCalls.map((call) => ({
             id: call.id,
             function: {
@@ -222,9 +229,9 @@ export function MessageList({ messages }: MessageListProps) {
             key={message.id}
             className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            {isAssistant && (
+            {(isAssistant || isTool) && (
               <div className="mt-1 flex-shrink-0 rounded-md border border-border/80 bg-muted p-1 text-muted-foreground self-start">
-                <Bot className="size-4" />
+                {isAssistant ? <Bot className="size-4" /> : <Wrench className="size-4" />}
               </div>
             )}
 
@@ -251,9 +258,7 @@ export function MessageList({ messages }: MessageListProps) {
                 </details>
               )}
 
-              {message.role === 'assistant' && (
-                <ToolCallsDisplay toolCalls={message.toolCalls} isStreaming={isStreaming} />
-              )}
+              {message.role === 'assistant' && <ToolCallsDisplay toolCalls={message.toolCalls} />}
 
               {message.role === 'tool' && (
                 <ToolResultDisplay toolCallId={message.toolCallId} content={message.content} />

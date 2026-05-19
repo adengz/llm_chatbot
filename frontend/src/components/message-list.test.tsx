@@ -140,9 +140,9 @@ describe('MessageList', () => {
     const { container } = render(<MessageList messages={messages} />)
 
     expect(screen.getByText('Tool Calls (1)')).toBeInTheDocument()
-    // Tool calls are collapsed by default and shown as expandable JSON.
-    expect(screen.getByText('[Array(1)]')).toBeInTheDocument()
-    expect(screen.getByText('...2 keys')).toBeInTheDocument()
+    // Tool call metadata is fully expanded by default.
+    expect(screen.getByText('"name"')).toBeInTheDocument()
+    expect(screen.getByText('"get_weather"')).toBeInTheDocument()
     expect(container.querySelector('div.font-mono')).toBeInTheDocument()
   })
 
