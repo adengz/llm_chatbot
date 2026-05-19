@@ -19,16 +19,6 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * Health
- */
-export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: Options<HealthHealthGetData, ThrowOnError>) => (options?.client ?? client).get<HealthHealthGetResponses, unknown, ThrowOnError>({ url: '/health', ...options });
-
-/**
- * List Models
- */
-export const listModelsModelsGet = <ThrowOnError extends boolean = false>(options?: Options<ListModelsModelsGetData, ThrowOnError>) => (options?.client ?? client).get<ListModelsModelsGetResponses, unknown, ThrowOnError>({ url: '/models', ...options });
-
-/**
  * Create Message
  */
 export const createMessageMessagesPost = <ThrowOnError extends boolean = false>(options: Options<CreateMessageMessagesPostData, ThrowOnError>) => (options.client ?? client).post<CreateMessageMessagesPostResponses, CreateMessageMessagesPostErrors, ThrowOnError>({
@@ -39,6 +29,11 @@ export const createMessageMessagesPost = <ThrowOnError extends boolean = false>(
         ...options.headers
     }
 });
+
+/**
+ * List Models
+ */
+export const listModelsModelsGet = <ThrowOnError extends boolean = false>(options?: Options<ListModelsModelsGetData, ThrowOnError>) => (options?.client ?? client).get<ListModelsModelsGetResponses, unknown, ThrowOnError>({ url: '/models', ...options });
 
 /**
  * List Conversations
@@ -66,3 +61,8 @@ export const renameConversationConversationsConversationIdPatch = <ThrowOnError 
         ...options.headers
     }
 });
+
+/**
+ * Health
+ */
+export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: Options<HealthHealthGetData, ThrowOnError>) => (options?.client ?? client).get<HealthHealthGetResponses, unknown, ThrowOnError>({ url: '/health', ...options });

@@ -5,6 +5,36 @@ export type ClientOptions = {
 };
 
 /**
+ * AssistantMessage
+ */
+export type AssistantMessage = {
+    /**
+     * Conversation Id
+     */
+    conversation_id?: string | null;
+    /**
+     * Created At
+     */
+    created_at?: string;
+    /**
+     * Role
+     */
+    role?: 'user' | 'assistant' | 'tool';
+    /**
+     * Content
+     */
+    content?: string;
+    /**
+     * Reasoning
+     */
+    reasoning?: string | null;
+    /**
+     * Tool Calls
+     */
+    tool_calls?: Array<FunctionToolCall> | null;
+};
+
+/**
  * Body_rename_conversation_conversations__conversation_id__patch
  */
 export type BodyRenameConversationConversationsConversationIdPatch = {
@@ -33,6 +63,31 @@ export type Conversation = {
 };
 
 /**
+ * Function
+ */
+export type Function = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Arguments
+     */
+    arguments: string;
+};
+
+/**
+ * FunctionToolCall
+ */
+export type FunctionToolCall = {
+    /**
+     * Id
+     */
+    id: string;
+    function: Function;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -40,32 +95,6 @@ export type HttpValidationError = {
      * Detail
      */
     detail?: Array<ValidationError>;
-};
-
-/**
- * Message
- */
-export type Message = {
-    /**
-     * Conversation Id
-     */
-    conversation_id?: string | null;
-    /**
-     * Created At
-     */
-    created_at?: string;
-    /**
-     * Role
-     */
-    role: 'user' | 'assistant';
-    /**
-     * Type
-     */
-    type?: 'tool_call_req' | 'tool_call_resp' | 'reasoning' | 'content';
-    /**
-     * Content
-     */
-    content: string;
 };
 
 /**
@@ -88,6 +117,54 @@ export type MessageRequest = {
      * Web Access
      */
     web_access?: boolean;
+};
+
+/**
+ * ToolMessage
+ */
+export type ToolMessage = {
+    /**
+     * Conversation Id
+     */
+    conversation_id?: string | null;
+    /**
+     * Created At
+     */
+    created_at?: string;
+    /**
+     * Role
+     */
+    role?: 'user' | 'assistant' | 'tool';
+    /**
+     * Content
+     */
+    content?: string;
+    /**
+     * Tool Call Id
+     */
+    tool_call_id: string;
+};
+
+/**
+ * UserMessage
+ */
+export type UserMessage = {
+    /**
+     * Conversation Id
+     */
+    conversation_id?: string | null;
+    /**
+     * Created At
+     */
+    created_at?: string;
+    /**
+     * Role
+     */
+    role?: 'user' | 'assistant' | 'tool';
+    /**
+     * Content
+     */
+    content?: string;
 };
 
 /**
@@ -118,14 +195,23 @@ export type ValidationError = {
     };
 };
 
-export type HealthHealthGetData = {
-    body?: never;
+export type CreateMessageMessagesPostData = {
+    body: MessageRequest;
     path?: never;
     query?: never;
-    url: '/health';
+    url: '/messages';
 };
 
-export type HealthHealthGetResponses = {
+export type CreateMessageMessagesPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateMessageMessagesPostError = CreateMessageMessagesPostErrors[keyof CreateMessageMessagesPostErrors];
+
+export type CreateMessageMessagesPostResponses = {
     /**
      * Successful Response
      */
@@ -149,29 +235,6 @@ export type ListModelsModelsGetResponses = {
 };
 
 export type ListModelsModelsGetResponse = ListModelsModelsGetResponses[keyof ListModelsModelsGetResponses];
-
-export type CreateMessageMessagesPostData = {
-    body: MessageRequest;
-    path?: never;
-    query?: never;
-    url: '/messages';
-};
-
-export type CreateMessageMessagesPostErrors = {
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type CreateMessageMessagesPostError = CreateMessageMessagesPostErrors[keyof CreateMessageMessagesPostErrors];
-
-export type CreateMessageMessagesPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
 
 export type ListConversationsConversationsGetData = {
     body?: never;
@@ -227,7 +290,7 @@ export type ListMessagesConversationsConversationIdMessagesGetResponses = {
      *
      * Successful Response
      */
-    200: Array<Message>;
+    200: Array<UserMessage | AssistantMessage | ToolMessage>;
 };
 
 export type ListMessagesConversationsConversationIdMessagesGetResponse = ListMessagesConversationsConversationIdMessagesGetResponses[keyof ListMessagesConversationsConversationIdMessagesGetResponses];
@@ -282,6 +345,20 @@ export type RenameConversationConversationsConversationIdPatchErrors = {
 export type RenameConversationConversationsConversationIdPatchError = RenameConversationConversationsConversationIdPatchErrors[keyof RenameConversationConversationsConversationIdPatchErrors];
 
 export type RenameConversationConversationsConversationIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HealthHealthGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/health';
+};
+
+export type HealthHealthGetResponses = {
     /**
      * Successful Response
      */
