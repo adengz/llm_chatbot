@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "openai>=2.36.0",
+    "uuid-utils>=0.16.0",
 ]
 
 [dependency-groups]

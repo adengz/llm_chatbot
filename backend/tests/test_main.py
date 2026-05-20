@@ -1,11 +1,11 @@
 import json
 import random
-import uuid
 from types import SimpleNamespace
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import uuid_utils.compat as uuid
 from api.domain.models import (
     AgentStreamChunk,
     AssistantMessage,

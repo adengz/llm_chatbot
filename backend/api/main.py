@@ -1,10 +1,10 @@
 import asyncio
-import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import AsyncGenerator, Awaitable, Callable, Generic, Protocol, TypeVar
 
+import uuid_utils.compat as uuid
 from fastapi import Body, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse

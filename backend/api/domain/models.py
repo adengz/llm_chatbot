@@ -1,7 +1,7 @@
-import uuid
 from datetime import datetime
 from typing import Literal
 
+import uuid_utils.compat as uuid
 from pydantic import BaseModel, Field, SerializeAsAny
 
 

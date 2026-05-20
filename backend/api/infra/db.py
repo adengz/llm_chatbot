@@ -1,9 +1,9 @@
 import datetime
 import json
-import uuid
 from contextlib import asynccontextmanager
 
 import aioboto3
+import uuid_utils.compat as uuid
 from boto3.dynamodb.conditions import Key
 from loguru import logger
 from pydantic import TypeAdapter

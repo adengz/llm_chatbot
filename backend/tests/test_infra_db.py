@@ -1,11 +1,11 @@
 import asyncio
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import AsyncGenerator, Protocol
 
 import pytest
 import pytest_asyncio
+import uuid_utils.compat as uuid
 from api.config import get_settings
 from api.domain.models import (
     AssistantMessage,
