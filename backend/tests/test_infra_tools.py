@@ -5,8 +5,8 @@ import pytest
 from api.infra.tools import (
     WebScrapeRequest,
     WebSearchRequest,
-    crawl4ai_web_scrape,
     ddgs_web_search,
+    html2text_web_scrape,
 )
 
 
@@ -33,7 +33,7 @@ class WebScrapeContract:
         request = WebScrapeRequest(url="https://example.com")
         response = await scrape(request)
 
-        assert "Example Domain" in response
+        assert "# Example Domain" in response
 
 
 class TestDDGSWebSearch(WebSearchContract):
@@ -42,7 +42,7 @@ class TestDDGSWebSearch(WebSearchContract):
         return ddgs_web_search
 
 
-class TestCrawl4AIWebScrape(WebScrapeContract):
+class TestHtml2TextWebScrape(WebScrapeContract):
     @pytest.fixture
     def scrape(self) -> Callable[[WebScrapeRequest], Awaitable[str]]:
-        return crawl4ai_web_scrape
+        return html2text_web_scrape

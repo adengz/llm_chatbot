@@ -1,11 +1,12 @@
 import asyncio
 import json
 
-from crawl4ai import AsyncWebCrawler
+import httpx
 from ddgs import DDGS
+from html2text import HTML2Text
 from pydantic import BaseModel, Field
 
-from api.infra.exceptions import ToolExecutionError, reraise_as
+# from api.infra.exceptions import ToolExecutionError, reraise_as
 
 
 class WebSearchRequest(BaseModel):
@@ -34,7 +35,7 @@ def ddgs_search(query: str) -> list[dict]:
         return ddgs.text(query, max_results=3)
 
 
-@reraise_as(ToolExecutionError)
+# @reraise_as(ToolExecutionError)
 async def ddgs_web_search(request: WebSearchRequest) -> str:
     loop = asyncio.get_running_loop()
     results = await loop.run_in_executor(None, ddgs_search, request.query)
@@ -43,10 +44,15 @@ async def ddgs_web_search(request: WebSearchRequest) -> str:
     )
 
 
-@reraise_as(ToolExecutionError)
-async def crawl4ai_web_scrape(request: WebScrapeRequest) -> str:
-    async with AsyncWebCrawler() as crawler:
-        result = await crawler.arun(request.url)
-        if not result.success:
-            raise Exception(result.error_message)
-        return result.markdown
+# @reraise_as(ToolExecutionError)
+async def html2text_web_scrape(request: WebScrapeRequest) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(request.url, headers=headers, follow_redirects=True)
+        response.raise_for_status()
+
+    markdown_content = HTML2Text().handle(response.text)
+    return markdown_content
