@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
         WebScrapeRequest,
         WebSearchRequest,
         ddgs_web_search,
-        html2text_web_scrape,
+        trafilatura_web_scrape,
     )
 
     settings = get_settings()
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
             input_cls=WebSearchRequest, func=ddgs_web_search
         ),
         "web_scrape": FunctionToolSpec(
-            input_cls=WebScrapeRequest, func=html2text_web_scrape
+            input_cls=WebScrapeRequest, func=trafilatura_web_scrape
         ),
     }
     tools = []

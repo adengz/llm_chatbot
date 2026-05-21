@@ -8,10 +8,10 @@ dependencies = [
     "aioboto3>=15.5.0",
     "ddgs>=9.14.2",
     "fastapi[standard]>=0.135.3",
-    "html2text>=2025.4.15",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
     "openai>=2.36.0",
+    "trafilatura>=2.0.0",
     "uuid-utils>=0.16.0",
 ]
 

@@ -6,7 +6,7 @@ from api.infra.tools import (
     WebScrapeRequest,
     WebSearchRequest,
     ddgs_web_search,
-    html2text_web_scrape,
+    trafilatura_web_scrape,
 )
 
 
@@ -33,7 +33,7 @@ class WebScrapeContract:
         request = WebScrapeRequest(url="https://example.com")
         response = await scrape(request)
 
-        assert "# Example Domain" in response
+        assert "domain" in response
 
 
 class TestDDGSWebSearch(WebSearchContract):
@@ -42,7 +42,7 @@ class TestDDGSWebSearch(WebSearchContract):
         return ddgs_web_search
 
 
-class TestHtml2TextWebScrape(WebScrapeContract):
+class TestTrafilaturaWebScrape(WebScrapeContract):
     @pytest.fixture
     def scrape(self) -> Callable[[WebScrapeRequest], Awaitable[str]]:
-        return html2text_web_scrape
+        return trafilatura_web_scrape
