@@ -4,11 +4,24 @@ import { describe, expect, it } from 'vitest'
 import { MessageList } from './message-list'
 import type { ChatMessage } from './chat-types'
 
-function makeMessage(overrides: Partial<ChatMessage>): ChatMessage {
+type UserOrAssistantMessage = Extract<ChatMessage, { role: 'user' | 'assistant' }>
+type ToolMessage = Extract<ChatMessage, { role: 'tool' }>
+
+function makeMessage(overrides: Partial<UserOrAssistantMessage>): UserOrAssistantMessage {
   return {
     id: 'msg-1',
     role: 'assistant',
     content: 'default content',
+    ...overrides,
+  }
+}
+
+function makeToolMessage(overrides: Partial<ToolMessage>): ToolMessage {
+  return {
+    id: 'tool-msg-1',
+    role: 'tool',
+    toolCallId: 'tool_1',
+    content: '',
     ...overrides,
   }
 }
@@ -82,14 +95,14 @@ describe('MessageList', () => {
       makeMessage({
         id: '__streaming__-reasoning-1',
         role: 'assistant',
-        type: 'reasoning',
-        content: 'reasoning details...',
+        content: '',
+        reasoning: 'reasoning details...',
       }),
       makeMessage({
         id: 'reasoning-done',
         role: 'assistant',
-        type: 'reasoning',
-        content: 'complete reasoning',
+        content: '',
+        reasoning: 'complete reasoning',
       }),
     ]
 
@@ -106,24 +119,30 @@ describe('MessageList', () => {
     expect(screen.getByText('reasoning details...')).toBeInTheDocument()
   })
 
-  it('renders tool call requests and responses', () => {
-    const toolCall = JSON.stringify({ name: 'get_weather', args: { city: 'London' } })
+  it('renders assistant tool calls', () => {
     const messages: ChatMessage[] = [
       makeMessage({
-        id: 'tool-1',
+        id: 'assistant-with-tools',
         role: 'assistant',
-        type: 'tool_call_req',
-        content: toolCall,
+        content: '',
+        toolCalls: [
+          {
+            id: 'tool_1',
+            function: {
+              name: 'get_weather',
+              arguments: { city: 'London' },
+            },
+          },
+        ],
       }),
     ]
 
     const { container } = render(<MessageList messages={messages} />)
 
-    expect(screen.getByText('Tool Call Request')).toBeInTheDocument()
-    // Check for JSON components are rendered with key "name" and value "get_weather"
+    expect(screen.getByText('Tool Calls (1)')).toBeInTheDocument()
+    // Tool call metadata is fully expanded by default.
     expect(screen.getByText('"name"')).toBeInTheDocument()
     expect(screen.getByText('"get_weather"')).toBeInTheDocument()
-    // Verify the structure is rendered
     expect(container.querySelector('div.font-mono')).toBeInTheDocument()
   })
 
@@ -140,11 +159,10 @@ describe('MessageList', () => {
       status: 'active',
     })
     const messages: ChatMessage[] = [
-      makeMessage({
+      makeToolMessage({
         id: 'tool-1',
-        role: 'assistant',
-        type: 'tool_call_resp',
-        content: nestedJson,
+        toolCallId: 'tool_1',
+        content: JSON.parse(nestedJson),
       }),
     ]
 
@@ -172,11 +190,10 @@ describe('MessageList', () => {
     const longString = 'a'.repeat(150) // 150 characters, exceeds 100 char limit
     const json = JSON.stringify({ description: longString })
     const messages: ChatMessage[] = [
-      makeMessage({
+      makeToolMessage({
         id: 'tool-1',
-        role: 'assistant',
-        type: 'tool_call_resp',
-        content: json,
+        toolCallId: 'tool_1',
+        content: JSON.parse(json),
       }),
     ]
 
@@ -205,11 +222,10 @@ describe('MessageList', () => {
       ],
     })
     const messages: ChatMessage[] = [
-      makeMessage({
+      makeToolMessage({
         id: 'tool-1',
-        role: 'assistant',
-        type: 'tool_call_resp',
-        content: json,
+        toolCallId: 'tool_1',
+        content: JSON.parse(json),
       }),
     ]
 
@@ -232,11 +248,10 @@ describe('MessageList', () => {
       metadata: null,
     })
     const messages: ChatMessage[] = [
-      makeMessage({
+      makeToolMessage({
         id: 'tool-1',
-        role: 'assistant',
-        type: 'tool_call_resp',
-        content: json,
+        toolCallId: 'tool_1',
+        content: JSON.parse(json),
       }),
     ]
 
@@ -253,11 +268,10 @@ describe('MessageList', () => {
       tags: ['tag1', 'tag2', 'tag3'],
     })
     const messages: ChatMessage[] = [
-      makeMessage({
+      makeToolMessage({
         id: 'tool-1',
-        role: 'assistant',
-        type: 'tool_call_resp',
-        content: json,
+        toolCallId: 'tool_1',
+        content: JSON.parse(json),
       }),
     ]
 

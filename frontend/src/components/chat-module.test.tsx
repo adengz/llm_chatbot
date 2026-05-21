@@ -28,6 +28,8 @@ vi.mock('../client/stream', () => ({
 type StreamEvent =
   | { type: 'metadata'; conversation_id: string }
   | { type: 'reasoning'; delta: string }
+  | { type: 'tool_calls'; data?: unknown }
+  | { type: 'tool'; tool_call_id: string; data?: unknown }
   | { type: 'content'; delta: string }
   | { type: 'error'; exception: string }
   | { type: 'done' }
@@ -152,6 +154,40 @@ describe('ChatModule', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByText(/model overloaded/i)).toBeInTheDocument()
+  })
+
+  it('renders streamed assistant tool calls and tool output', async () => {
+    const user = userEvent.setup()
+
+    streamMessageMock.mockImplementation(() =>
+      emit([
+        { type: 'metadata', conversation_id: 'conv-tools' },
+        {
+          type: 'tool_calls',
+          data: [
+            {
+              id: 'call-1',
+              function: {
+                name: 'web_search',
+                arguments: '{"query":"latest ai news"}',
+              },
+            },
+          ],
+        },
+        { type: 'tool', tool_call_id: 'call-1', data: '{"items":["one","two"]}' },
+        { type: 'content', delta: 'Tool-assisted answer' },
+        { type: 'done' },
+      ]),
+    )
+
+    render(<ChatModule />)
+
+    await user.type(screen.getByPlaceholderText('Send a message'), 'Find AI news')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(await screen.findByText('Tool Calls (1)')).toBeInTheDocument()
+    expect(await screen.findByText('Tool Output')).toBeInTheDocument()
+    expect(await screen.findByText(/Tool-assisted answer/)).toBeInTheDocument()
   })
 
   it('aborts in-flight stream when user clicks stop', async () => {

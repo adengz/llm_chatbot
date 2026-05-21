@@ -10,17 +10,90 @@ import {
 } from 'react'
 
 import { listMessagesConversationsConversationIdMessagesGet } from '../client/sdk.gen'
-import type { Message as ApiMessage } from '../client/types.gen'
-import type { ChatMessage } from '../components/chat-types'
+import type {
+  AssistantMessage as ApiAssistantMessage,
+  ToolMessage as ApiToolMessage,
+  UserMessage as ApiUserMessage,
+} from '../client/types.gen'
+import type { ChatMessage, ToolCall } from '../components/chat-types'
 
 const HISTORY_PAGE_SIZE = 100
 
+type ApiMessage = ApiUserMessage | ApiAssistantMessage | ApiToolMessage
+
+function isToolMessage(message: ApiMessage): message is ApiToolMessage {
+  return 'tool_call_id' in message
+}
+
+function isAssistantMessage(message: ApiMessage): message is ApiAssistantMessage {
+  return !isToolMessage(message) && (message.role === 'assistant' || 'tool_calls' in message || 'reasoning' in message)
+}
+
+function parseToolCallArguments(argumentsRaw: string): unknown {
+  try {
+    return JSON.parse(argumentsRaw)
+  } catch {
+    return argumentsRaw
+  }
+}
+
+function toToolCalls(toolCalls: ApiAssistantMessage['tool_calls']): ToolCall[] | undefined {
+  if (!toolCalls || !Array.isArray(toolCalls)) {
+    return undefined
+  }
+
+  return toolCalls.map((call) => ({
+    id: call.id,
+    function: {
+      name: call.function.name,
+      arguments: parseToolCallArguments(call.function.arguments),
+    },
+  }))
+}
+
+function parseToolContent(content: string | undefined): unknown {
+  if (typeof content !== 'string') {
+    return ''
+  }
+
+  const trimmed = content.trim()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      return content
+    }
+  }
+
+  return content
+}
+
 function toChatMessage(message: ApiMessage, index: number): ChatMessage {
+  const id = `${message.created_at ?? 'message'}-${message.role ?? 'assistant'}-${index}`
+
+  if (isToolMessage(message)) {
+    return {
+      id,
+      role: 'tool',
+      toolCallId: message.tool_call_id,
+      content: parseToolContent(message.content),
+    }
+  }
+
+  if (isAssistantMessage(message)) {
+    return {
+      id,
+      role: 'assistant',
+      content: message.content ?? '',
+      reasoning: message.reasoning ?? undefined,
+      toolCalls: toToolCalls(message.tool_calls),
+    }
+  }
+
   return {
-    id: `${message.created_at ?? 'message'}-${message.role}-${index}`,
-    role: message.role,
-    type: message.type,
-    content: message.content,
+    id,
+    role: 'user',
+    content: message.content ?? '',
   }
 }
 

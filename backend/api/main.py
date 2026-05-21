@@ -1,15 +1,36 @@
-import uuid
+import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncGenerator, Awaitable, Callable, Protocol
+from typing import AsyncGenerator, Awaitable, Callable, Generic, Protocol, TypeVar
 
+import uuid_utils.compat as uuid
 from fastapi import Body, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
+from openai import pydantic_function_tool
+from pydantic import BaseModel, ValidationError
 
-from api.domain.models import AgentStreamChunk, Conversation, Message, MessageRequest
-from api.infra.db import DatabaseException
+from api.domain.models import (
+    AgentStreamChunk,
+    AssistantMessage,
+    Conversation,
+    FunctionToolCall,
+    Message,
+    MessageRequest,
+    ToolMessage,
+    UserMessage,
+)
+from api.infra.exceptions import InfrastructureException
+
+T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass
+class FunctionToolSpec(Generic[T]):
+    input_cls: type[T]
+    func: Callable[[T], Awaitable[str]]
 
 
 class LLMClient(Protocol):
@@ -17,7 +38,7 @@ class LLMClient(Protocol):
 
     def stream_response(
         self, context: list[Message], model: str, web_access: bool = False
-    ) -> AsyncGenerator[AgentStreamChunk, None]: ...
+    ) -> AsyncGenerator[AgentStreamChunk | AssistantMessage, None]: ...
 
 
 class DBClient(Protocol):
@@ -36,7 +57,7 @@ class DBClient(Protocol):
     async def create_message(self, message: Message) -> None: ...
 
     async def scroll_messages(
-        self, conversation_id: uuid.UUID, cursor: datetime, limit: int = ...
+        self, conversation_id: uuid.UUID, cursor: datetime, limit: int = 100
     ) -> list[Message]: ...
 
     async def load_historical_contents(
@@ -48,25 +69,49 @@ def get_user_id() -> int:
     return 0
 
 
+class LLMToolError(Exception):
+    pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from api.config import get_settings
     from api.infra.db import DynamoDBClient
     from api.infra.llm import AsyncOpenAIClient
-    from api.infra.tools import ddgs_web_search
+    from api.infra.tools import (
+        WebScrapeRequest,
+        WebSearchRequest,
+        ddgs_web_search,
+        trafilatura_web_scrape,
+    )
 
     settings = get_settings()
+
+    tool_registry = {
+        "web_search": FunctionToolSpec(
+            input_cls=WebSearchRequest, func=ddgs_web_search
+        ),
+        "web_scrape": FunctionToolSpec(
+            input_cls=WebScrapeRequest, func=trafilatura_web_scrape
+        ),
+    }
+    tools = []
+    for name, spec in tool_registry.items():
+        tools.append(pydantic_function_tool(spec.input_cls, name=name))
+
     db_client: DBClient = DynamoDBClient(
         endpoint_url=settings.aws_endpoint_url,
         conversations_table=settings.dynamodb_conversations_table,
         messages_table=settings.dynamodb_messages_table,
     )
+
     llm_client: LLMClient = AsyncOpenAIClient(
-        web_search=ddgs_web_search,
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
+        tools=tools,
     )
 
+    app.state.tool_registry = tool_registry
     app.state.db_client = db_client
     app.state.llm_client = llm_client
     yield
@@ -78,18 +123,16 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(DatabaseException)
-async def database_exception_handler(request: Request, exc: DatabaseException):
-    logger.error(f"Database error: {exc}")
-    return JSONResponse(status_code=500, content={"detail": str(exc)})
-
-
 def get_db(request: Request) -> DBClient:
     return request.app.state.db_client
 
 
 def get_llm(request: Request) -> LLMClient:
     return request.app.state.llm_client
+
+
+def get_tool_registry(request: Request) -> dict[str, FunctionToolSpec]:
+    return request.app.state.tool_registry
 
 
 def get_disconnect_checker(request: Request) -> Callable[[], Awaitable[bool]]:
@@ -99,46 +142,72 @@ def get_disconnect_checker(request: Request) -> Callable[[], Awaitable[bool]]:
     return checker
 
 
-def sse_event(model):
-    return f"data: {model.model_dump_json()}\n\n"
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-async def save_instream_message(
-    db: DBClient, conversation_id: uuid.UUID, buffer: list[str], tp: str | None
-) -> str | None:
-    if not buffer or tp not in (
-        "reasoning",
-        "content",
-        "tool_call_req",
-        "tool_call_resp",
+async def handle_llm_stream(
+    context: list[Message],
+    model: str,
+    web_access: bool,
+    llm: LLMClient,
+    is_disconnected: Callable[[], Awaitable[bool]],
+) -> AsyncGenerator[tuple[AgentStreamChunk | AssistantMessage | None, bool], None]:
+    buffer = {"reasoning": [], "content": []}
+    async for event in llm.stream_response(
+        context=context, model=model, web_access=web_access
     ):
-        return
-    content = "".join(buffer)
-    logger.info(f"LLM content of type '{tp}': {content}")
-    message = Message(
-        conversation_id=conversation_id,
-        role="assistant",
-        type=tp,
-        content=content,
-    )
-    warning = None
-    try:
-        await db.create_message(message=message)
-    except Exception as exc:
-        logger.warning(
-            f"Failed to save message for conversation {conversation_id}: {exc}"
-        )
-        warning = sse_event(
-            AgentStreamChunk(
-                type="warning", exception="Failed to save message: " + str(exc)
+        if await is_disconnected():
+            partial_msg = None
+            if buffer["reasoning"] or buffer["content"]:
+                content = "".join(buffer["content"])
+                reasoning = None
+                if buffer["reasoning"]:
+                    reasoning = "".join(buffer["reasoning"])
+                partial_msg = AssistantMessage(
+                    content=content,
+                    reasoning=reasoning,
+                )
+            yield partial_msg, True
+            return
+
+        if isinstance(event, AgentStreamChunk):
+            buffer[event.type].append(event.delta)
+        yield event, False
+
+
+async def handle_tool_calls(
+    tool_calls: list[FunctionToolCall], tool_registry: dict[str, FunctionToolSpec]
+) -> list[ToolMessage]:
+    tasks = []
+    for tool_call in tool_calls:
+        try:
+            spec = tool_registry[tool_call.function.name]
+            request = spec.input_cls.model_validate_json(tool_call.function.arguments)
+            tasks.append(spec.func(request))
+        except KeyError:
+            raise LLMToolError(f"Tool not found: {tool_call.function.name}")
+        except ValidationError:
+            raise LLMToolError(
+                f"Invalid arguments for tool {tool_call.function.name}: {tool_call.function.arguments}"
             )
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    messages = []
+    for tool_call, result in zip(tool_calls, results):
+        if isinstance(result, Exception):
+            logger.error(f"Tool call error: {result}")
+            raise result
+        tool_msg = ToolMessage(
+            content=str(result),
+            tool_call_id=tool_call.id,
         )
-    return warning
+        messages.append(tool_msg)
+    return messages
+
+
+SSE_PREFIX = "data: "
+SSE_SUFFIX = "\n\n"
+
+
+def sse_event(model: AgentStreamChunk) -> str:
+    return SSE_PREFIX + model.model_dump_json(exclude_none=True) + SSE_SUFFIX
 
 
 async def generate_stream(
@@ -147,53 +216,65 @@ async def generate_stream(
     model: str,
     web_access: bool,
     llm: LLMClient,
+    tool_registry: dict[str, FunctionToolSpec],
     db: DBClient,
     is_disconnected: Callable[[], Awaitable[bool]],
 ) -> AsyncGenerator[str, None]:
     yield sse_event(AgentStreamChunk(type="metadata", conversation_id=conversation_id))
 
-    buffer, stream_type = [], None
+    assistant_msg = None
+    disconnected = False
+    final_chunk = AgentStreamChunk(type="done")
+    try:
+        while True:
+            async for event, disconnected in handle_llm_stream(
+                llm=llm,
+                context=context[:],  # shallow copy to test for multiple calls
+                model=model,
+                web_access=web_access,
+                is_disconnected=is_disconnected,
+            ):
+                if isinstance(event, AgentStreamChunk):
+                    yield sse_event(event)
+                    continue
+                assistant_msg = event
 
-    async for chunk in llm.stream_response(
-        context=context, model=model, web_access=web_access
-    ):
-        data = None
-        match chunk.type:
-            case "reasoning" | "content":
-                data = chunk.delta
-            case "tool_call_req" | "tool_call_resp":
-                if chunk.data is not None:
-                    data = chunk.data.model_dump_json()
-            case _:
-                pass
+            if assistant_msg is None:
+                break
 
-        if chunk.type != stream_type:
-            warn = await save_instream_message(
-                db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type
+            assistant_msg.conversation_id = conversation_id
+            await db.create_message(message=assistant_msg)
+
+            if not assistant_msg.tool_calls:
+                break
+
+            chunk = AgentStreamChunk(
+                type="tool_calls",
+                data=assistant_msg.tool_calls,
             )
-            if warn:
-                yield warn
-            buffer = []
+            yield sse_event(chunk)
+            context.append(assistant_msg)
 
-        if data:
-            buffer.append(data)
-
-        stream_type = chunk.type
-        yield sse_event(chunk)
-
-        if await is_disconnected():
-            logger.info(
-                f"Client disconnected during streaming for conversation {conversation_id}"
+            tool_msgs = await handle_tool_calls(
+                tool_calls=assistant_msg.tool_calls, tool_registry=tool_registry
             )
-            await save_instream_message(
-                db=db, conversation_id=conversation_id, buffer=buffer, tp=stream_type
-            )
-            break
+            for tool_msg in tool_msgs:
+                tool_msg.conversation_id = conversation_id
+                await db.create_message(message=tool_msg)
+                chunk = AgentStreamChunk(
+                    type="tool",
+                    tool_call_id=tool_msg.tool_call_id,
+                    data=tool_msg.content,
+                )
+                yield sse_event(chunk)
 
+            context.extend(tool_msgs)
+            assistant_msg = None
+    except Exception as exc:
+        final_chunk = AgentStreamChunk(type="error", exception=str(exc))
 
-@app.get("/models")
-async def list_models(llm: LLMClient = Depends(get_llm)) -> list[str]:
-    return await llm.list_models()
+    if not disconnected:
+        yield sse_event(final_chunk)
 
 
 @app.post("/messages")
@@ -201,12 +282,11 @@ async def create_message(
     req: MessageRequest,
     db: DBClient = Depends(get_db),
     llm: LLMClient = Depends(get_llm),
+    tool_registry: dict[str, FunctionToolSpec] = Depends(get_tool_registry),
     is_disconnected: Callable[[], Awaitable[bool]] = Depends(get_disconnect_checker),
 ) -> StreamingResponse:
     user_id = get_user_id()
-    message = Message(
-        conversation_id=req.conversation_id, role="user", content=req.content
-    )
+    message = UserMessage(conversation_id=req.conversation_id, content=req.content)
 
     context = []
     if message.conversation_id is None:
@@ -220,18 +300,26 @@ async def create_message(
 
     await db.create_message(message=message)
 
+    context.append(message)
+
     return StreamingResponse(
         generate_stream(
             conversation_id=message.conversation_id,
-            context=[message] + context,
+            context=context,
             model=req.model,
             web_access=req.web_access,
             llm=llm,
+            tool_registry=tool_registry,
             db=db,
             is_disconnected=is_disconnected,
         ),
         media_type="text/event-stream",
     )
+
+
+@app.get("/models")
+async def list_models(llm: LLMClient = Depends(get_llm)) -> list[str]:
+    return await llm.list_models()
 
 
 @app.get("/conversations")
@@ -272,3 +360,19 @@ async def rename_conversation(
     await db.rename_conversation(
         user_id=user_id, conversation_id=conversation_id, new_title=title
     )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.exception_handler(InfrastructureException)
+async def infra_error_handler(request: Request, exc: InfrastructureException):
+    logger.error(
+        "Infrastructure error while handling {} {}: {}",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
