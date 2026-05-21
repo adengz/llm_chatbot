@@ -11,6 +11,7 @@ type JsonArray = JsonValue[]
 
 type MessageListProps = {
   messages: ChatMessage[]
+  error?: string | null
 }
 
 type AssistantChatMessage = Extract<ChatMessage, { role: 'assistant' }>
@@ -215,7 +216,7 @@ function ToolResultDisplay({
   )
 }
 
-export function MessageList({ messages }: MessageListProps) {
+export function MessageList({ messages, error }: MessageListProps) {
   return (
     <div className="space-y-4 py-6">
       {messages.map((message) => {
@@ -285,6 +286,12 @@ export function MessageList({ messages }: MessageListProps) {
           </div>
         )
       })}
+
+      {error && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
