@@ -17,6 +17,7 @@ export function ChatModule() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const {
     requestForceScroll,
+    observeScrollPosition,
     captureScrollAnchor,
     restoreScrollAnchor,
     syncAfterMessagesChange,
@@ -146,7 +147,14 @@ export function ChatModule() {
           </div>
         </CardHeader>
 
-        <CardContent className="overflow-y-auto" ref={scrollRef} onScroll={handleHistoryScroll}>
+        <CardContent
+          className="overflow-y-auto"
+          ref={scrollRef}
+          onScroll={(event) => {
+            observeScrollPosition()
+            handleHistoryScroll(event)
+          }}
+        >
           {isLoadingOlderHistory && (
             <p className="mb-3 text-center text-xs text-muted-foreground">Loading older messages...</p>
           )}

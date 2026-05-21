@@ -4,8 +4,11 @@ type UseChatScrollParams = {
   scrollRef: RefObject<HTMLDivElement | null>
 }
 
+const STICKY_BOTTOM_THRESHOLD_PX = 150
+
 type UseChatScrollResult = {
   requestForceScroll: () => void
+  observeScrollPosition: () => void
   captureScrollAnchor: () => void
   restoreScrollAnchor: () => void
   syncAfterMessagesChange: () => void
@@ -14,6 +17,16 @@ type UseChatScrollResult = {
 export function useChatScroll({ scrollRef }: UseChatScrollParams): UseChatScrollResult {
   const forceScrollRef = useRef(false)
   const anchorRef = useRef<{ top: number; height: number } | null>(null)
+  const bottomGapRef = useRef(0)
+
+  const updateBottomGap = useCallback(() => {
+    const container = scrollRef.current
+    if (!container) {
+      return
+    }
+
+    bottomGapRef.current = container.scrollHeight - container.scrollTop - container.clientHeight
+  }, [scrollRef])
 
   const syncAfterMessagesChange = useCallback(() => {
     const el = scrollRef.current
@@ -22,17 +35,26 @@ export function useChatScroll({ scrollRef }: UseChatScrollParams): UseChatScroll
     if (forceScrollRef.current) {
       forceScrollRef.current = false
       el.scrollTop = el.scrollHeight
+      bottomGapRef.current = 0
       return
     }
 
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
-    if (isNearBottom) {
+    // Keep following stream updates while the user remains near the bottom.
+    if (bottomGapRef.current <= STICKY_BOTTOM_THRESHOLD_PX) {
       el.scrollTop = el.scrollHeight
+      bottomGapRef.current = 0
+      return
     }
-  }, [scrollRef])
+
+    updateBottomGap()
+  }, [scrollRef, updateBottomGap])
 
   const requestForceScroll = () => {
     forceScrollRef.current = true
+  }
+
+  const observeScrollPosition = () => {
+    updateBottomGap()
   }
 
   const captureScrollAnchor = () => {
@@ -68,6 +90,7 @@ export function useChatScroll({ scrollRef }: UseChatScrollParams): UseChatScroll
 
   return {
     requestForceScroll,
+    observeScrollPosition,
     captureScrollAnchor,
     restoreScrollAnchor,
     syncAfterMessagesChange,
