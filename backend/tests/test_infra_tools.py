@@ -16,7 +16,7 @@ class WebSearchContract:
         self, search: Callable[[WebSearchRequest], Awaitable[str]]
     ):
 
-        request = WebSearchRequest(query="Wikipedia")
+        request = WebSearchRequest(query="Wikipedia", num_results=3, page=1)
         response = await search(request)
 
         results = json.loads(response)
@@ -33,7 +33,9 @@ class WebScrapeContract:
         request = WebScrapeRequest(url="https://example.com")
         response = await scrape(request)
 
-        assert "domain" in response
+        results = json.loads(response)
+        assert results["status"] == "success"
+        assert "domain" in results["content"]
 
 
 class TestDDGSWebSearch(WebSearchContract):

@@ -15,6 +15,9 @@ from api.domain.models import (
 )
 from api.infra.exceptions import LLMStreamingError, ModelListError, reraise_as
 
+NO_WEB_SYSTEM_PROMPT = "If the user query requires up-to-date information, news, or specific facts from the web, instruct them to enable web access and try again. Do not attempt to answer questions that require web access without it, and do not make up information. If the user query does not require web access, answer the question directly without mentioning web access."
+WEB_SYSTEM_PROMPT = "You have access to web search and web scraping tools that allow you to find up-to-date information, news, or specific facts from the web. Use these tools when necessary to answer user queries that require current information."
+
 
 class AsyncOpenAIClient:
     def __init__(
@@ -35,8 +38,10 @@ class AsyncOpenAIClient:
     async def stream_response(
         self, context: list[Message], model: str, web_access: bool = False
     ) -> AsyncGenerator[AgentStreamChunk | AssistantMessage, None]:
+        system_prompt = WEB_SYSTEM_PROMPT if web_access else NO_WEB_SYSTEM_PROMPT
+        messages = [{"role": "system", "content": system_prompt}]
         meta_data_fields = {"conversation_id", "created_at"}
-        messages = [m.model_dump(exclude=meta_data_fields) for m in context]
+        messages.extend([m.model_dump(exclude=meta_data_fields) for m in context])
         logger.info(f"Web access on: {web_access}")
         logger.info(f"Invoking model {model} with context:\n{messages}")
 
