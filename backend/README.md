@@ -6,7 +6,7 @@
 
 ### Key Components
 
-- LLM w/ web search (**DDGS**) tool 
+- LLM w/ light-weight web search (**DDGS**) and scrape (**Trafilatura**) tool 
 - DB (**DynamoDB**) as conversation state manager
 - Streaming end point: streaming LLM responses to client via SSE and persist LLM generated content to DB.
 
