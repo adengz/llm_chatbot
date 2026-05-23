@@ -14,7 +14,6 @@
 
 - Infrastructure dependencies (LLM, DB) abstracted as `typing.Protocol` to decouple application logics from implementations of the infrastructure layer.
 - **OpenAI SDK** as LLM driver. Switching between any LLM provider with OpenAI-compatible endpoints made easy as configuring `base_url` and `api_key`.
-- Strictly isolated error handling for infrastructure components. For instance, DB errors during LLM streaming will only generate a warning event to notify client without interrupting the stream.
 
 ## Local Development
 
@@ -108,7 +107,7 @@ A unified test contract is developed around the two protocols. For any new `DBCl
 To run the tests, first spin up database containers.
 
 ```bash
-docker compose -f compose_ci.yaml up -d
+docker compose -f compose.ci.yaml up -d
 ```
 
 Then, run the tests (with the [`.env` file](#environment-variables) properly set).
