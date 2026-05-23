@@ -17,6 +17,7 @@ class FunctionToolCall(BaseModel):
         arguments: str
 
     id: str
+    type: Literal["function"] = "function"
     function: Function
 
 

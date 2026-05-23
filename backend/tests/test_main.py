@@ -1,6 +1,5 @@
 import json
 import random
-from types import SimpleNamespace
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -113,44 +112,6 @@ def tool_calls() -> list[FunctionToolCall]:
             ),
         ),
     ]
-
-
-@pytest.fixture
-def mock_agent_streamer_kit(
-    mock_llm: MagicMock, tool_calls: list[FunctionToolCall]
-) -> SimpleNamespace:
-    tool_call_streamer = MockLLMStreamer(
-        reasoning="Search the web for information on example.com and scrape its content.",
-        tool_calls=tool_calls,
-    )
-    answer = """example.com is a placeholder domain that is reserved for use in documentation and examples. When you visit the site you see a very simple static page that reads:
-
-```
-Example Domain
-
-This domain is for use in documentation examples without needing permission.
-Avoid use in operations.
-```
-
-The page contains only two paragraphs and a link to the IANA registration page. Its sole purpose is to serve as a harmless example for tutorials and test cases, ensuring that real domain names aren’t accidentally used in documentation or demo scripts."""
-    content_streamer = MockLLMStreamer(
-        reasoning="Provide content description.",
-        content=answer,
-    )
-
-    mock_llm.stream_response.side_effect = [
-        tool_call_streamer.stream_response(),
-        content_streamer.stream_response(),
-    ]
-    return SimpleNamespace(
-        llm=mock_llm,
-        tool_call_message=tool_call_streamer.chunks[-1],
-        content_message=content_streamer.chunks[-1],
-    )
-
-
-async def empty_stream() -> AsyncGenerator[str, None]:
-    yield ""
 
 
 class TestLLMStreamHandler:
