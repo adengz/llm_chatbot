@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Start database
-      run: docker compose -f compose_ci.yaml up -d
+      run: docker compose -f compose.ci.yaml up -d
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -66,7 +66,7 @@ jobs:
 
     - name: Shutdown database
       if: always()
-      run: docker compose -f compose_ci.yaml down
+      run: docker compose -f compose.ci.yaml down
 
   frontend-test:
     runs-on: ubuntu-latest

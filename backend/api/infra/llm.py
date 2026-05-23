@@ -1,11 +1,10 @@
-from typing import AsyncGenerator, cast
+from typing import AsyncGenerator
 
 from loguru import logger
 from openai import AsyncOpenAI
 from openai.types.chat.chat_completion_function_tool_param import (
     ChatCompletionFunctionToolParam,
 )
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 from api.domain.models import (
     AgentStreamChunk,
@@ -51,11 +50,11 @@ class AsyncOpenAIClient:
                 continue
             tools.append(tool)
 
-        async with self.client.chat.completions.stream(
-            model=model,
-            messages=cast(list[ChatCompletionMessageParam], messages),
-            tools=tools,
-        ) as stream:
+        kwargs = {"model": model, "messages": messages}
+        if tools:
+            kwargs["tools"] = tools
+
+        async with self.client.chat.completions.stream(**kwargs) as stream:
             async for event in stream:
                 if event.type != "chunk":
                     continue
